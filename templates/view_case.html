@@ -1,0 +1,64 @@
+<!-- templates/view_case.html -->
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">Case Details</h2>
+    <div class="card bg-dark border-secondary mb-4">
+        <div class="card-body">
+            <h5 class="card-title text-light">{{ case.title }}</h5>
+            <p class="card-text text-light">{{ case.description }}</p>
+            <ul class="list-group list-group-flush bg-dark border-secondary">
+                <li class="list-group-item bg-dark text-light border-secondary"><strong>Created:</strong> {{ case.created_date.strftime('%Y-%m-%d %H:%M') }}</li>
+                <li class="list-group-item bg-dark text-light border-secondary"><strong>Status:</strong> {{ case.status.title() }}</li>
+                <li class="list-group-item bg-dark text-light border-secondary"><strong>Type:</strong> {{ case.case_type }}</li>
+                <li class="list-group-item bg-dark text-light border-secondary"><strong>Category:</strong> {{ case.category }}</li>
+                {% if case.assigned_to %}
+                    <li class="list-group-item bg-dark text-light border-secondary"><strong>Assigned To:</strong> {{ case.assigned_to.username }}</li>
+                {% endif %}
+                <li class="list-group-item bg-dark text-light border-secondary"><strong>Created By:</strong> {{ case.user.username }}</li>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Comments Section -->
+    <h3 class="mt-5 mb-4">Comments</h3>
+    <form method="POST" action="{{ url_for('add_comment', case_id=case.id) }}" class="mb-4">
+        <div class="form-group">
+            <textarea name="content" class="form-control bg-secondary text-light border-secondary" rows="3" placeholder="Add a comment..." required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Comment</button>
+    </form>
+    
+    {% if case.comments %}
+        {% for comment in case.comments %}
+            <div class="card mb-3 bg-dark border-secondary">
+                <div class="card-body">
+                    <p class="card-text text-light">{{ comment.content }}</p>
+                    <small class="text-muted">By <span class="text-light">{{ comment.user.username }}</span> on <span class="text-light">{{ comment.created_date.strftime('%Y-%m-%d %H:%M') }}</span></small>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p class="text-muted">No comments yet.</p>
+    {% endif %}
+    
+    <!-- Attachments Section -->
+    <h3 class="mt-5 mb-4">Attachments</h3>
+    {% if case.attachments %}
+        <ul class="list-group">
+            {% for attachment in case.attachments %}
+                <li class="list-group-item bg-dark text-light border-secondary">
+                    <a href="{{ url_for('download_attachment', attachment_id=attachment.id) }}" class="text-info">{{ attachment.filename }}</a>
+                    <small class="text-muted d-block">Uploaded on <span class="text-light">{{ attachment.uploaded_date.strftime('%Y-%m-%d %H:%M') }}</span></small>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">No attachments.</p>
+    {% endif %}
+    
+    <div class="mt-5">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}
