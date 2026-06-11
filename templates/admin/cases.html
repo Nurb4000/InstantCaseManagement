@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>All Cases <a href="{{ url_for('cases.export_all_cases', resolved=1 if show_resolved else 0) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h2>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('cases.all_cases', resolved=0) }}" class="btn btn-sm {{ 'btn-primary' if not show_resolved else 'btn-outline-secondary' }}">Open Cases</a>
+        <a href="{{ url_for('cases.all_cases', resolved=1) }}" class="btn btn-sm {{ 'btn-primary' if show_resolved else 'btn-outline-secondary' }}">Include Resolved</a>
+    </div>
+</div>
+
+{% if cases %}
+    <div class="table-responsive">
+        <table class="table table-dark table-hover sortable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th class="nowrap">Created</th>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>State</th>
+                    <th>Submitted By</th>
+                    <th>Submitted For</th>
+                    <th>Assigned To</th>
+                    <th>Group</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                <tr>
+                    <td>{{ case.id }}</td>
+                    <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ case.title }}</td>
+                    <td>{{ case.case_type }}</td>
+                    <td>{{ case.category }}</td>
+                    <td>{{ case.state.name if case.state else '-' }}</td>
+                    <td>{{ case.user.username }}</td>
+                    <td>{{ case.submitted_for or '-' }}</td>
+                    <td>{{ case.assigned_to.username if case.assigned_to else '—' }}</td>
+                    <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
+                    <td><span class="status-{{ case.status }}">{{ case.status.title() }}</span></td>
+                    <td>
+                        <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-inbox fa-3x mb-3 text-muted"></i>
+        <h4>No cases found</h4>
+    </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-3">
+        <div class="sidebar">
+            <a href="{{ url_for('cases.dashboard') }}" class="active">My Assignments</a>
+            <a href="{{ url_for('cases.submit_case') }}">Submit Case</a>
+            <a href="{{ url_for('cases.all_cases') }}">All Cases</a>
+        </div>
+    </div>
+    <div class="col-md-9">
+        <h2>Staff Dashboard</h2>
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Assigned to You</h5>
+                        <p class="card-text">{{ assigned_cases|length }} cases</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Unassigned</h5>
+                        <p class="card-text">{{ unassigned_cases|length }} cases in your group</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Team Cases</h5>
+                        <p class="card-text">{{ team_cases|length }} cases assigned to others</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <h3>Assigned Cases <a href="{{ url_for('cases.export_assigned') }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
+        {% if assigned_cases %}
+            <div class="table-responsive">
+                <table class="table table-dark table-hover sortable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th class="nowrap">Created</th>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th>Category</th>
+                            <th>State</th>
+                            <th>Submitted By</th>
+                            <th>Submitted For</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for case in assigned_cases %}
+                        <tr>
+                            <td>{{ case.id }}</td>
+                            <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ case.title }}</td>
+                            <td>{{ case.case_type }}</td>
+                            <td>{{ case.category }}</td>
+                            <td>{{ case.state.name if case.state else '-' }}</td>
+                            <td>{{ case.user.username }}</td>
+                            <td>{{ case.submitted_for or '-' }}</td>
+                            <td>
+                                <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-inbox fa-3x mb-3 text-muted"></i>
+                <h4>No assigned cases</h4>
+                <p>You don't have any cases assigned to you right now.</p>
+            </div>
+        {% endif %}
+        <h3 class="mt-5">Unassigned Cases in Your Groups <a href="{{ url_for('cases.export_unassigned') }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
+        {% if unassigned_cases %}
+            <div class="table-responsive">
+                <table class="table table-dark table-hover sortable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th class="nowrap">Created</th>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th>Category</th>
+                            <th>State</th>
+                            <th>Submitted By</th>
+                            <th>Submitted For</th>
+                            <th>Group</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for case in unassigned_cases %}
+                        <tr>
+                            <td>{{ case.id }}</td>
+                            <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ case.title }}</td>
+                            <td>{{ case.case_type }}</td>
+                            <td>{{ case.category }}</td>
+                            <td>{{ case.state.name if case.state else '-' }}</td>
+                            <td>{{ case.user.username }}</td>
+                            <td>{{ case.submitted_for or '-' }}</td>
+                            <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
+                            <td>
+                                <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-inbox fa-3x mb-3 text-muted"></i>
+                <h4>No unassigned cases</h4>
+                <p>There are no cases in your group that need assignment.</p>
+            </div>
+        {% endif %}
+
+        <h3 class="mt-5">Team Cases <a href="{{ url_for('cases.export_team') }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
+        {% if team_cases %}
+            <div class="table-responsive">
+                <table class="table table-dark table-hover sortable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th class="nowrap">Created</th>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th>Category</th>
+                            <th>State</th>
+                            <th>Submitted By</th>
+                            <th>Submitted For</th>
+                            <th>Assigned To</th>
+                            <th>Group</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for case in team_cases %}
+                        <tr>
+                            <td>{{ case.id }}</td>
+                            <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ case.title }}</td>
+                            <td>{{ case.case_type }}</td>
+                            <td>{{ case.category }}</td>
+                            <td>{{ case.state.name if case.state else '-' }}</td>
+                            <td>{{ case.user.username }}</td>
+                            <td>{{ case.submitted_for or '-' }}</td>
+                            <td>{{ case.assigned_to.username }}</td>
+                            <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
+                            <td>
+                                <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-users fa-3x mb-3 text-muted"></i>
+                <h4>No team cases</h4>
+                <p>No other members in your group have assigned cases.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>{{ group.name }}</h2>
+    <div>
+        <a href="{{ url_for('admin.edit_group', group_id=group.id) }}" class="btn btn-outline-secondary">Edit</a>
+        <a href="{{ url_for('admin.list_groups') }}" class="btn btn-secondary">Back to Groups</a>
+    </div>
+</div>
+
+{% if group.description %}
+    <p class="text-muted mb-4">{{ group.description }}</p>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Members ({{ group.users|length }})</h5>
+            </div>
+            <div class="card-body">
+                {% if group.users %}
+                    <ul class="list-group list-group-flush bg-dark">
+                        {% for user in group.users|sort(attribute='username') %}
+                            <li class="list-group-item bg-dark border-secondary d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span>{{ user.username }}</span>
+                                    <small class="text-muted d-block">{{ user.email }}</small>
+                                </div>
+                                <form method="POST" action="{{ url_for('admin.remove_user_from_group', group_id=group.id, user_id=user.id) }}"
+                                      onsubmit="return confirm('Remove {{ user.username }} from {{ group.name }}?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted mb-0">No members in this group.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Add Member</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.add_user_to_group', group_id=group.id) }}">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ form.user_id.label(class="form-label") }}
+                        {{ form.user_id(class="form-select") }}
+                        {% for error in form.user_id.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    <button type="submit" class="btn btn-primary" {{ 'disabled' if not form.user_id.choices }}>Add User</button>
+                    {% if not form.user_id.choices %}
+                        <small class="text-muted d-block mt-1">All users are already members of this group.</small>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

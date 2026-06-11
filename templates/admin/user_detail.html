@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>{{ user.username }}</h2>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin.reset_password', user_id=user.id) }}" class="btn btn-outline-warning">
+            <i class="fas fa-key"></i> Reset Password
+        </a>
+        <a href="{{ url_for('admin.list_users') }}" class="btn btn-secondary">Back to Users</a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <ul class="list-group list-group-flush bg-dark">
+            <li class="list-group-item bg-dark border-secondary d-flex justify-content-between">
+                <span>Email</span>
+                <span>{{ user.email }}</span>
+            </li>
+            <li class="list-group-item bg-dark border-secondary d-flex justify-content-between">
+                <span>Staff</span>
+                <span class="{{ 'text-success' if user.is_staff else 'text-danger' }}">
+                    {{ 'Yes' if user.is_staff else 'No' }}
+                </span>
+            </li>
+            <li class="list-group-item bg-dark border-secondary d-flex justify-content-between">
+                <span>Admin</span>
+                <span class="{{ 'text-success' if user.is_admin else 'text-danger' }}">
+                    {{ 'Yes' if user.is_admin else 'No' }}
+                </span>
+            </li>
+        </ul>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Groups ({{ user.groups|length }})</h5>
+            </div>
+            <div class="card-body">
+                {% if user.groups %}
+                    <ul class="list-group list-group-flush bg-dark">
+                        {% for g in user.groups|sort(attribute='name') %}
+                            <li class="list-group-item bg-dark border-secondary d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span>{{ g.name }}</span>
+                                    {% if g.description %}
+                                        <small class="text-muted d-block">{{ g.description }}</small>
+                                    {% endif %}
+                                </div>
+                                <form method="POST" action="{{ url_for('admin.remove_group_from_user', user_id=user.id, group_id=g.id) }}"
+                                      onsubmit="return confirm('Remove {{ user.username }} from {{ g.name }}?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted mb-0">Not a member of any group.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Add to Group</h5>
+            </div>
+            <div class="card-body">
+                {% if all_groups %}
+                    <form method="POST" action="{{ url_for('admin.add_group_to_user', user_id=user.id, group_id=0) }}" id="add-group-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-3">
+                            <label class="form-label">Select Group</label>
+                            <select class="form-select" name="group_id" required>
+                                <option value="">Choose a group...</option>
+                                {% for g in all_groups %}
+                                    {% if g not in user.groups %}
+                                        <option value="{{ g.id }}">{{ g.name }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="add-group-btn">Add to Group</button>
+                    </form>
+                    <script>
+                        document.getElementById('add-group-form').addEventListener('submit', function(e) {
+                            var select = this.querySelector('select');
+                            var groupId = select.value;
+                            if (!groupId) { e.preventDefault(); return; }
+                            this.action = '{{ url_for('admin.add_group_to_user', user_id=user.id, group_id=0) }}'.replace('/0', '/' + groupId);
+                        });
+                    </script>
+                {% else %}
+                    <p class="text-muted mb-0">No groups exist. <a href="{{ url_for('admin.create_group') }}">Create one</a>.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

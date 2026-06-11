@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 text-center">
+        <h1 class="display-4 mb-4">Instant Call Center</h1>
+        <p class="lead mb-5">A modern case tracking system for efficient support management</p>
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-user-plus fa-3x mb-3 text-primary"></i>
+                        <h5>For Users</h5>
+                        <p>Submit support cases and track their progress.</p>
+                        {% if current_user.is_authenticated %}
+                            <a href="{{ url_for('cases.submit_case') }}" class="btn btn-primary">Submit Case</a>
+                        {% else %}
+                            <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Login to Submit</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-users fa-3x mb-3 text-primary"></i>
+                        <h5>For Staff</h5>
+                        <p>Manage cases, assign tasks, and resolve issues.</p>
+                        {% if current_user.is_authenticated %}
+                            <a href="{{ url_for('cases.dashboard') }}" class="btn btn-primary">View Dashboard</a>
+                        {% else %}
+                            <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Staff Login</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% if marketing_enabled %}
+        <div class="mt-5">
+            <h3 class="mb-4">Features</h3>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-file-alt fa-lg text-primary mb-2"></i>
+                            <h5>Case Management</h5>
+                            <p>Create, track, and resolve support cases with detailed information.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-comments fa-lg text-primary mb-2"></i>
+                            <h5>Comments & History</h5>
+                            <p>Track all actions and communications related to each case.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-paperclip fa-lg text-primary mb-2"></i>
+                            <h5>Attachments</h5>
+                            <p>Upload and manage files related to cases.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-users fa-lg text-primary mb-2"></i>
+                            <h5>Group Assignments</h5>
+                            <p>Assign cases to groups or individual staff members.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-bell fa-lg text-primary mb-2"></i>
+                            <h5>Notifications</h5>
+                            <p>Get notified of case changes and assignments.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-mobile-alt fa-lg text-primary mb-2"></i>
+                            <h5>Mobile Friendly</h5>
+                            <p>Responsive design works on all devices.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

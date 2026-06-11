@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Manage States</h2>
+    <a href="{{ url_for('admin.create_state') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> New State
+    </a>
+</div>
+
+{% if states %}
+    <div class="table-responsive">
+        <table class="table table-dark table-hover">
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for state in states %}
+                <tr>
+                    <td>{{ state.sort_order }}</td>
+                    <td>{{ state.name }}</td>
+                    <td>
+                        {% if state.hidden %}
+                            <span class="text-muted">Hidden</span>
+                        {% else %}
+                            <span class="text-success">Active</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('admin.edit_state', state_id=state.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <form method="POST" action="{{ url_for('admin.toggle_state', state_id=state.id) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-{{ 'success' if state.hidden else 'warning' }}">
+                                {{ 'Show' if state.hidden else 'Hide' }}
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('admin.delete_state', state_id=state.id) }}" class="d-inline"
+                              onsubmit="return confirm('Delete state &#39;{{ state.name }}&#39;?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-tag fa-3x mb-3 text-muted"></i>
+        <h4>No states yet</h4>
+        <a href="{{ url_for('admin.create_state') }}" class="btn btn-primary">Create Your First State</a>
+    </div>
+{% endif %}
+{% endblock %}
