@@ -1,29 +1,42 @@
 # InstantCaseManagement
-Simple case management tool
+Simple case management tool     **Warning --- Total code revamp in process. OpenCode is helping out with this**
 
-**this is a work in progress, early phase, still a lot of base functionality to add before its useful**
 
-Purpose of this is to offer a really simple web based case management tool. just enough to get by so a small team wont need to work out of a shared mailbox or something to track work. It will allow for user signups, group assignments, basic work classifications, tracking of comments and email notices.
+Purpose is to be a simple web based case management tool for small groups. 
+Current feature set
+- Python + Flask based
+- User Signups
+- SQLite back-end + SQL Alchemy 
+- Group memberships
+- Case assignments and routing
+- Exporting to CSV
+- Column sorting by clicking the header
+- Dashboard of current assignments includng yours, other team members and unassigned to your groups.
+- Classification using 'type' and 'category'
+- Case State classification
+- Admin page to update/change users, add/remove groups, and update lists for: classification, state, type
+- Supports attachments. they are stored as files, not in the databaes to reduce bloat
+- Users can view and add comments/attachments to their submitted cases
+- Can also change who submission is for, if not the actual submitter.
+- Submissions automatically go to the 'triage' team.
+- SLA and E-Mail notices, and search are planned but not there yet.
 
-Its using an ORM so it could be expanded to other databases, but starts off as SQLite. 
-It will create the DB for you. Also creates the admin user:  "admin" "admin123"
+To get started, i would suggest a virtual environment. 
+- Requirements.txt is there
+- 2 example environment files are there for a few of the settings. You want your real one to be .env after review and possible edit. 
+- Default admin password is in the .env file. Be sure to change that either in env or after first login to something a bit more complex.
 
-Couple of screenshots of where its headed:
-Login
+to run: inside the project " flask run " (  could instead use gunicorn for larger organizations  )
 
-<img width="678" height="275" alt="image" src="https://github.com/user-attachments/assets/9cffc090-2dcb-4696-9d7d-3128b38326b5" />
+Some screenshots below
 
-The dashboard view
-
-<img width="751" height="377" alt="image" src="https://github.com/user-attachments/assets/5e3845f2-8506-4511-a74f-faafc8f81806" />
-
-case details ( more data to be added as well as change status and managing uploads )
-
-<img width="664" height="599" alt="image" src="https://github.com/user-attachments/assets/ab2a68f3-c3ad-43fd-8d67-2cbf1b52d76a" />
-
-super simple submission form. "just enough"
-
-<img width="751" height="339" alt="image" src="https://github.com/user-attachments/assets/d76d8e6a-cd9f-4b35-899d-e03dbabb2029" />
+<img width="1108" height="812" alt="image" src="https://github.com/user-attachments/assets/5078aaa1-e1c0-458f-8d29-3cd6e5ae2f52" />
+<img width="1069" height="573" alt="image" src="https://github.com/user-attachments/assets/2cfe7a68-d7d9-460c-8b5d-2f8636e2fe48" />
+<img width="1015" height="890" alt="image" src="https://github.com/user-attachments/assets/3b775516-bd36-44f1-92ca-c82f0af3425e" />
+<img width="1034" height="560" alt="image" src="https://github.com/user-attachments/assets/5fa80519-800f-417e-bceb-a3d16b946bb7" />
+<img width="1058" height="426" alt="image" src="https://github.com/user-attachments/assets/cd0362c3-9a94-45c7-a83c-5f457056717e" />
+<img width="1069" height="452" alt="image" src="https://github.com/user-attachments/assets/6193bada-341c-4b78-b6db-96c0912f5011" />
+<img width="1066" height="502" alt="image" src="https://github.com/user-attachments/assets/8a7827ef-4c38-4744-991c-12e28b546dc4" />
 
 
 
