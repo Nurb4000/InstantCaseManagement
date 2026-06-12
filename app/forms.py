@@ -98,3 +98,8 @@ class CaseTypeForm(FlaskForm):
 class CaseCategoryForm(FlaskForm):
     name = StringField('Category Name', validators=[DataRequired(), Length(max=100)])
     sort_order = SelectField('Sort Order', coerce=int, choices=[(i, str(i)) for i in range(1, 21)])
+
+
+class AdminEditUserForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(max=80)])
+    email = StringField('Email', validators=[DataRequired(), Email(), Length(max=120)])
