@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import csv
 from io import StringIO
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, Response
@@ -27,6 +27,43 @@ def user_group_ids(user):
     return [g.id for g in user.groups]
 
 
+def _search_filter(query, q, field='all'):
+    if not q:
+        return query
+    like = f'%{q}%'
+    Submitter = db.aliased(User)
+    Assignee = db.aliased(User)
+    field_map = {
+        'title': Case.title.ilike(like),
+        'description': Case.description.ilike(like),
+        'type': Case.case_type.ilike(like),
+        'category': Case.category.ilike(like),
+        'status': Case.status.ilike(like),
+        'submitted_for': Case.submitted_for.ilike(like),
+        'id': Case.id == (int(q) if q.isdigit() else 0),
+        'submitted_by': Submitter.username.ilike(like),
+        'assigned_to': Assignee.username.ilike(like),
+        'group': Group.name.ilike(like),
+    }
+    if field in field_map:
+        if field == 'submitted_by':
+            return query.join(Submitter, Case.user_id == Submitter.id).filter(field_map[field])
+        if field == 'assigned_to':
+            return query.outerjoin(Assignee, Case.assigned_to_id == Assignee.id).filter(field_map[field])
+        if field == 'group':
+            return query.outerjoin(Group, Case.assignment_group_id == Group.id).filter(field_map[field])
+        return query.filter(field_map[field])
+    return query.filter(db.or_(*field_map.values()))
+
+
+def _date_filter(query, date_from, date_to):
+    if date_from:
+        query = query.filter(Case.created_date >= datetime.strptime(date_from, '%Y-%m-%d'))
+    if date_to:
+        query = query.filter(Case.created_date <= datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1))
+    return query
+
+
 @cases_bp.route('/')
 def index():
     if current_user.is_authenticated:
@@ -38,30 +75,39 @@ def index():
 @cases_bp.route('/dashboard')
 @login_required
 def dashboard():
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    def _base(query):
+        return _date_filter(_search_filter(query, q, field), date_from, date_to)
+
     if current_user.is_staff:
         group_ids = user_group_ids(current_user)
-        assigned_cases = Case.query.filter(
+        assigned_cases = _base(Case.query.filter(
             Case.assigned_to_id == current_user.id,
             Case.status != 'resolved'
-        ).all()
-        unassigned_cases = Case.query.filter(
+        )).all()
+        unassigned_cases = _base(Case.query.filter(
             Case.assignment_group_id.in_(group_ids),
             Case.assigned_to_id == None,
             Case.status != 'resolved'
-        ).all() if group_ids else []
-        team_cases = Case.query.filter(
+        )).all() if group_ids else []
+        team_cases = _base(Case.query.filter(
             Case.assignment_group_id.in_(group_ids),
             Case.assigned_to_id != None,
             Case.assigned_to_id != current_user.id,
             Case.status != 'resolved'
-        ).all() if group_ids else []
+        )).all() if group_ids else []
         return render_template('staff_dashboard.html',
                                assigned_cases=assigned_cases,
                                unassigned_cases=unassigned_cases,
-                               team_cases=team_cases)
+                               team_cases=team_cases,
+                               q=q, field=field, date_from=date_from, date_to=date_to)
     else:
-        user_cases = Case.query.filter_by(user_id=current_user.id).all()
-        return render_template('user_dashboard.html', cases=user_cases)
+        user_cases = _base(Case.query.filter_by(user_id=current_user.id)).all()
+        return render_template('user_dashboard.html', cases=user_cases, q=q, field=field, date_from=date_from, date_to=date_to)
 
 
 @cases_bp.route('/cases')
@@ -70,12 +116,17 @@ def all_cases():
     if not current_user.is_staff and not current_user.is_admin:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     show_resolved = request.args.get('resolved', '0') == '1'
     query = Case.query
     if not show_resolved:
         query = query.filter(Case.status != 'resolved')
+    query = _date_filter(_search_filter(query, q, field), date_from, date_to)
     cases = query.order_by(Case.created_date.desc()).all()
-    return render_template('admin/cases.html', cases=cases, show_resolved=show_resolved)
+    return render_template('admin/cases.html', cases=cases, show_resolved=show_resolved, q=q, field=field, date_from=date_from, date_to=date_to)
 
 
 def _csv_response(cases, filename):
@@ -100,10 +151,14 @@ def _csv_response(cases, filename):
 def export_assigned():
     if not current_user.is_staff:
         return redirect(url_for('cases.dashboard'))
-    cases = Case.query.filter(
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    cases = _date_filter(_search_filter(Case.query.filter(
         Case.assigned_to_id == current_user.id,
         Case.status != 'resolved'
-    ).order_by(Case.created_date.desc()).all()
+    ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
     return _csv_response(cases, 'assigned_cases.csv')
 
 
@@ -112,12 +167,16 @@ def export_assigned():
 def export_unassigned():
     if not current_user.is_staff:
         return redirect(url_for('cases.dashboard'))
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     group_ids = user_group_ids(current_user)
-    cases = Case.query.filter(
+    cases = _date_filter(_search_filter(Case.query.filter(
         Case.assignment_group_id.in_(group_ids),
         Case.assigned_to_id == None,
         Case.status != 'resolved'
-    ).order_by(Case.created_date.desc()).all() if group_ids else []
+    ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all() if group_ids else []
     return _csv_response(cases, 'unassigned_cases.csv')
 
 
@@ -126,20 +185,28 @@ def export_unassigned():
 def export_team():
     if not current_user.is_staff:
         return redirect(url_for('cases.dashboard'))
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     group_ids = user_group_ids(current_user)
-    cases = Case.query.filter(
+    cases = _date_filter(_search_filter(Case.query.filter(
         Case.assignment_group_id.in_(group_ids),
         Case.assigned_to_id != None,
         Case.assigned_to_id != current_user.id,
         Case.status != 'resolved'
-    ).order_by(Case.created_date.desc()).all() if group_ids else []
+    ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all() if group_ids else []
     return _csv_response(cases, 'team_cases.csv')
 
 
 @cases_bp.route('/export/user')
 @login_required
 def export_user():
-    cases = Case.query.filter_by(user_id=current_user.id).order_by(Case.created_date.desc()).all()
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    cases = _date_filter(_search_filter(Case.query.filter_by(user_id=current_user.id), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
     return _csv_response(cases, 'my_cases.csv')
 
 
@@ -148,10 +215,15 @@ def export_user():
 def export_all_cases():
     if not current_user.is_staff:
         return redirect(url_for('cases.dashboard'))
+    q = request.args.get('q', '').strip()
+    field = request.args.get('field', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
     show_resolved = request.args.get('resolved', '0') == '1'
     query = Case.query
     if not show_resolved:
         query = query.filter(Case.status != 'resolved')
+    query = _date_filter(_search_filter(query, q, field), date_from, date_to)
     cases = query.order_by(Case.created_date.desc()).all()
     return _csv_response(cases, 'all_cases.csv')
 
