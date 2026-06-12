@@ -9,7 +9,29 @@
         </div>
     </div>
     <div class="col-md-9">
-        <h2>Staff Dashboard</h2>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">Staff Dashboard</h2>
+            <form method="GET" class="d-flex gap-2 align-items-center flex-wrap">
+                <select name="field" class="form-select form-select-sm" style="width: auto;">
+                    <option value="all" {{ 'selected' if field == 'all' }}>All Fields</option>
+                    <option value="id" {{ 'selected' if field == 'id' }}>ID</option>
+                    <option value="title" {{ 'selected' if field == 'title' }}>Title</option>
+                    <option value="description" {{ 'selected' if field == 'description' }}>Description</option>
+                    <option value="type" {{ 'selected' if field == 'type' }}>Type</option>
+                    <option value="category" {{ 'selected' if field == 'category' }}>Category</option>
+                    <option value="status" {{ 'selected' if field == 'status' }}>Status</option>
+                    <option value="submitted_for" {{ 'selected' if field == 'submitted_for' }}>Submitted For</option>
+                    <option value="submitted_by" {{ 'selected' if field == 'submitted_by' }}>Submitted By</option>
+                    <option value="assigned_to" {{ 'selected' if field == 'assigned_to' }}>Assigned To</option>
+                    <option value="group" {{ 'selected' if field == 'group' }}>Group</option>
+                </select>
+                <input type="text" name="q" class="form-control form-control-sm" style="width: 180px;" placeholder="Search..." value="{{ q or '' }}">
+                <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ date_from or '' }}" title="From date">
+                <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ date_to or '' }}" title="To date">
+                <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-search"></i></button>
+                {% if q or date_from or date_to %}<a href="{{ url_for('cases.dashboard') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+            </form>
+        </div>
         <div class="row mb-4">
             <div class="col-md-4">
                 <div class="card">
@@ -36,7 +58,7 @@
                 </div>
             </div>
         </div>
-        <h3>Assigned Cases <a href="{{ url_for('cases.export_assigned') }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
+        <h3>Assigned Cases <a href="{{ url_for('cases.export_assigned', q=q, field=field, date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
         {% if assigned_cases %}
             <div class="table-responsive">
                 <table class="table table-dark table-hover sortable">
@@ -79,7 +101,7 @@
                 <p>You don't have any cases assigned to you right now.</p>
             </div>
         {% endif %}
-        <h3 class="mt-5">Unassigned Cases in Your Groups <a href="{{ url_for('cases.export_unassigned') }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
+        <h3 class="mt-5">Unassigned Cases in Your Groups <a href="{{ url_for('cases.export_unassigned', q=q, field=field, date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
         {% if unassigned_cases %}
             <div class="table-responsive">
                 <table class="table table-dark table-hover sortable">
@@ -125,7 +147,7 @@
             </div>
         {% endif %}
 
-        <h3 class="mt-5">Team Cases <a href="{{ url_for('cases.export_team') }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
+        <h3 class="mt-5">Team Cases <a href="{{ url_for('cases.export_team', q=q, field=field, date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h3>
         {% if team_cases %}
             <div class="table-responsive">
                 <table class="table table-dark table-hover sortable">
