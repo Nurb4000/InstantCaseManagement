@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 
 from app import db
 from app.models import User, Group, Case, CaseState, CaseType, CaseCategory
-from app.forms import GroupForm, UserGroupForm, CaseStateForm, AdminPasswordResetForm, CaseTypeForm, CaseCategoryForm
+from app.forms import GroupForm, UserGroupForm, CaseStateForm, AdminPasswordResetForm, CaseTypeForm, CaseCategoryForm, AdminEditUserForm
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -184,6 +184,27 @@ def reset_password(user_id):
         flash(f'Password reset for {user.username}')
         return redirect(url_for('admin.view_user', user_id=user_id))
     return render_template('admin/reset_password.html', form=form, user=user)
+
+
+@admin_bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_user(user_id):
+    user = User.query.get_or_404(user_id)
+    form = AdminEditUserForm(obj=user)
+    if form.validate_on_submit():
+        if form.username.data != user.username and User.query.filter_by(username=form.username.data).first():
+            flash('Username already taken')
+            return render_template('admin/edit_user.html', form=form, user=user)
+        if form.email.data != user.email and User.query.filter_by(email=form.email.data).first():
+            flash('Email already taken')
+            return render_template('admin/edit_user.html', form=form, user=user)
+        user.username = form.username.data
+        user.email = form.email.data
+        db.session.commit()
+        flash('User updated')
+        return redirect(url_for('admin.view_user', user_id=user_id))
+    return render_template('admin/edit_user.html', form=form, user=user)
 
 
 @admin_bp.route('/users/<int:user_id>/groups/<int:group_id>/add', methods=['POST'])
