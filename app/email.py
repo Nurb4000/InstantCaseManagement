@@ -110,6 +110,20 @@ def notify_comment_added(comment, case, commenter):
     _notify_user(recipient, subject, body, case_id=case.id)
 
 
+def notify_resolution(case, reason, last_comment=None):
+    if not case.user or not case.user.email:
+        return
+    subject = f'[Case #{case.id}] Case resolved'
+    body = (
+        f'Case #{case.id} has been resolved.\n\n'
+        f'{_case_summary(case)}\n'
+    )
+    if last_comment:
+        body += f'\nLast comment:\n"{last_comment.content}"\n'
+    body += f'\nResolution note: {reason}'
+    _notify_user(case.user, subject, body, case_id=case.id)
+
+
 def notify_escalation(case, event_type, details):
     if case.assigned_to:
         recipient = case.assigned_to
