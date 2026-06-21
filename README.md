@@ -27,6 +27,8 @@ Current feature set
     - Notices goes to assignee on assignment
     - Notice goes owner on comments added, SLA events
     - If no owner, notices of comments and events go to group manager
+    - User gets email summary on resolution
+    - Incoming mail for updates - **future feature**
 - Groups now have a manager for notices
 - Groups now have working hours, to use with OLA. ( not an industry standard, but was a request )
 - Org level working hours for SLA.
