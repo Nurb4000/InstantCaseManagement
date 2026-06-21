@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-cog"></i> Organization Settings</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    <h5>Business Hours</h5>
+                    <p class="text-muted mb-4">Used for SLA calculations across all cases.</p>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            {{ form.business_hours_start.label(class="form-label") }}
+                            {{ form.business_hours_start(class="form-select") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.business_hours_end.label(class="form-label") }}
+                            {{ form.business_hours_end(class="form-select") }}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        {{ form.business_hours_days.label(class="form-label") }}
+                        {{ form.business_hours_days(class="form-select", multiple=True, size=7) }}
+                    </div>
+
+                    <hr class="my-4">
+                    <h5>Email Settings (SMTP)</h5>
+                    <p class="text-muted mb-4">Used to send notification emails and customer communications. Leave blank to skip email sending.</p>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            {{ form.smtp_server.label(class="form-label") }}
+                            {{ form.smtp_server(class="form-control", placeholder="smtp.example.com") }}
+                        </div>
+                        <div class="col-md-4">
+                            {{ form.smtp_port.label(class="form-label") }}
+                            {{ form.smtp_port(class="form-control", placeholder="587") }}
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            {{ form.smtp_username.label(class="form-label") }}
+                            {{ form.smtp_username(class="form-control") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.smtp_password.label(class="form-label") }}
+                            {{ form.smtp_password(class="form-control") }}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        {{ form.smtp_from_email.label(class="form-label") }}
+                        {{ form.smtp_from_email(class="form-control", placeholder="noreply@example.com") }}
+                    </div>
+                    <div class="mb-3 form-check">
+                        {{ form.smtp_use_tls(class="form-check-input") }}
+                        {{ form.smtp_use_tls.label(class="form-check-label") }}
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Save Settings</button>
+                        <a href="{{ url_for('admin.list_groups') }}" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
