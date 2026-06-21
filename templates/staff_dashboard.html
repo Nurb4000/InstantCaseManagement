@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row">
-    <div class="col-md-3">
+    <div class="col-md-2">
         <div class="sidebar">
             <a href="{{ url_for('cases.dashboard') }}" class="active">My Assignments</a>
             <a href="{{ url_for('cases.submit_case') }}">Submit Case</a>
             <a href="{{ url_for('cases.all_cases') }}">All Cases</a>
         </div>
     </div>
-    <div class="col-md-9">
+    <div class="col-md-10">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="mb-0">Staff Dashboard</h2>
             <form method="GET" class="d-flex gap-2 align-items-center flex-wrap">
@@ -24,6 +24,8 @@
                     <option value="submitted_by" {{ 'selected' if field == 'submitted_by' }}>Submitted By</option>
                     <option value="assigned_to" {{ 'selected' if field == 'assigned_to' }}>Assigned To</option>
                     <option value="group" {{ 'selected' if field == 'group' }}>Group</option>
+                    <option value="ola" {{ 'selected' if field == 'ola' }}>OLA</option>
+                    <option value="sla" {{ 'selected' if field == 'sla' }}>SLA</option>
                 </select>
                 <input type="text" name="q" class="form-control form-control-sm" style="width: 180px;" placeholder="Search..." value="{{ q or '' }}">
                 <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ date_from or '' }}" title="From date">
@@ -64,6 +66,8 @@
                 <table class="table table-dark table-hover sortable">
                     <thead>
                         <tr>
+                            <th>OLA</th>
+                            <th>SLA</th>
                             <th>ID</th>
                             <th class="nowrap">Created</th>
                             <th>Title</th>
@@ -78,8 +82,26 @@
                     <tbody>
                         {% for case in assigned_cases %}
                         <tr>
+                            <td>
+                                {% set color = ola_colors.get(case.id) %}
+                                {% if color %}
+                                    {% set bh = ola_times.get(case.id, 0) %}
+                                    <span class="ola-dot ola-{{ color }}" title="{{ '%.1f'|format(bh) }} business hours ({{ color }})"></span>
+                                {% else %}
+                                    <span class="ola-dot ola-none" title="No active OLA"></span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set sc = sla_colors.get(case.id) %}
+                                {% if sc %}
+                                    {% set sp = sla_pcts.get(case.id, 0) %}
+                                    <span class="ola-dot ola-{{ sc }}" title="SLA {{ '%.1f'|format(sp) }}% ({{ sc }})"></span>
+                                {% else %}
+                                    <span class="ola-dot ola-none" title="No SLA"></span>
+                                {% endif %}
+                            </td>
                             <td>{{ case.id }}</td>
-                            <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                            <td class="nowrap">{{ case.created_date | local_fmt('%Y-%m-%d') }}</td>
                             <td>{{ case.title }}</td>
                             <td>{{ case.case_type }}</td>
                             <td>{{ case.category }}</td>
@@ -107,6 +129,8 @@
                 <table class="table table-dark table-hover sortable">
                     <thead>
                         <tr>
+                            <th>OLA</th>
+                            <th>SLA</th>
                             <th>ID</th>
                             <th class="nowrap">Created</th>
                             <th>Title</th>
@@ -122,8 +146,26 @@
                     <tbody>
                         {% for case in unassigned_cases %}
                         <tr>
+                            <td>
+                                {% set color = ola_colors.get(case.id) %}
+                                {% if color %}
+                                    {% set bh = ola_times.get(case.id, 0) %}
+                                    <span class="ola-dot ola-{{ color }}" title="{{ '%.1f'|format(bh) }} business hours ({{ color }})"></span>
+                                {% else %}
+                                    <span class="ola-dot ola-none" title="No active OLA"></span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set sc = sla_colors.get(case.id) %}
+                                {% if sc %}
+                                    {% set sp = sla_pcts.get(case.id, 0) %}
+                                    <span class="ola-dot ola-{{ sc }}" title="SLA {{ '%.1f'|format(sp) }}% ({{ sc }})"></span>
+                                {% else %}
+                                    <span class="ola-dot ola-none" title="No SLA"></span>
+                                {% endif %}
+                            </td>
                             <td>{{ case.id }}</td>
-                            <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                            <td class="nowrap">{{ case.created_date | local_fmt('%Y-%m-%d') }}</td>
                             <td>{{ case.title }}</td>
                             <td>{{ case.case_type }}</td>
                             <td>{{ case.category }}</td>
@@ -153,32 +195,52 @@
                 <table class="table table-dark table-hover sortable">
                     <thead>
                         <tr>
+                            <th>OLA</th>
+                            <th>SLA</th>
                             <th>ID</th>
                             <th class="nowrap">Created</th>
-                            <th>Title</th>
-                            <th>Type</th>
-                            <th>Category</th>
-                            <th>State</th>
-                            <th>Submitted By</th>
-                            <th>Submitted For</th>
-                            <th>Assigned To</th>
-                            <th>Group</th>
+                            <th class="nowrap">Title</th>
+                            <th class="nowrap">Type</th>
+                            <th class="nowrap">Category</th>
+                            <th class="nowrap">State</th>
+                            <th class="nowrap">Submitted By</th>
+                            <th class="nowrap">Submitted For</th>
+                            <th class="nowrap">Assigned To</th>
+                            <th class="nowrap">Group</th>
                             <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for case in team_cases %}
                         <tr>
+                            <td>
+                                {% set color = ola_colors.get(case.id) %}
+                                {% if color %}
+                                    {% set bh = ola_times.get(case.id, 0) %}
+                                    <span class="ola-dot ola-{{ color }}" title="{{ '%.1f'|format(bh) }} business hours ({{ color }})"></span>
+                                {% else %}
+                                    <span class="ola-dot ola-none" title="No active OLA"></span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set sc = sla_colors.get(case.id) %}
+                                {% if sc %}
+                                    {% set sp = sla_pcts.get(case.id, 0) %}
+                                    <span class="ola-dot ola-{{ sc }}" title="SLA {{ '%.1f'|format(sp) }}% ({{ sc }})"></span>
+                                {% else %}
+                                    <span class="ola-dot ola-none" title="No SLA"></span>
+                                {% endif %}
+                            </td>
                             <td>{{ case.id }}</td>
-                            <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
-                            <td>{{ case.title }}</td>
-                            <td>{{ case.case_type }}</td>
-                            <td>{{ case.category }}</td>
-                            <td>{{ case.state.name if case.state else '-' }}</td>
-                            <td>{{ case.user.username }}</td>
-                            <td>{{ case.submitted_for or '-' }}</td>
-                            <td>{{ case.assigned_to.username }}</td>
-                            <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
+                            <td class="nowrap">{{ case.created_date | local_fmt('%Y-%m-%d') }}</td>
+                            <td class="nowrap">{{ case.title }}</td>
+                            <td class="nowrap">{{ case.case_type }}</td>
+                            <td class="nowrap">{{ case.category }}</td>
+                            <td class="nowrap">{{ case.state.name if case.state else '-' }}</td>
+                            <td class="nowrap">{{ case.user.username }}</td>
+                            <td class="nowrap">{{ case.submitted_for or '-' }}</td>
+                            <td class="nowrap">{{ case.assigned_to.username }}</td>
+                            <td class="nowrap">{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
                             <td>
                                 <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                             </td>
