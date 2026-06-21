@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row">
-    <div class="col-md-3">
+    <div class="col-md-2">
         <div class="sidebar">
             <a href="{{ url_for('cases.dashboard') }}" class="active">My Cases</a>
             <a href="{{ url_for('cases.submit_case') }}">Submit New Case</a>
         </div>
     </div>
-    <div class="col-md-9">
+    <div class="col-md-10">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="mb-0">My Cases <a href="{{ url_for('cases.export_user', q=q, field=field, date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a></h2>
             <form method="GET" class="d-flex gap-2 align-items-center flex-wrap">
@@ -23,6 +23,8 @@
                     <option value="submitted_by" {{ 'selected' if field == 'submitted_by' }}>Submitted By</option>
                     <option value="assigned_to" {{ 'selected' if field == 'assigned_to' }}>Assigned To</option>
                     <option value="group" {{ 'selected' if field == 'group' }}>Group</option>
+                    <option value="ola" {{ 'selected' if field == 'ola' }}>OLA</option>
+                    <option value="sla" {{ 'selected' if field == 'sla' }}>SLA</option>
                 </select>
                 <input type="text" name="q" class="form-control form-control-sm" style="width: 180px;" placeholder="Search..." value="{{ q or '' }}">
                 <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ date_from or '' }}" title="From date">
@@ -46,7 +48,7 @@
                                     <span class="status-{{ case.status }}">{{ case.status.title() }}</span>
                                 </div>
                             </div>
-                            <small class="text-muted">By {{ case.user.username }}{% if case.submitted_for %} for {{ case.submitted_for }}{% endif %} &middot; {{ case.created_date.strftime('%Y-%m-%d') }}</small>
+                            <small class="text-muted">By {{ case.user.username }}{% if case.submitted_for %} for {{ case.submitted_for }}{% endif %} &middot; {{ case.created_date | local_fmt('%Y-%m-%d') }}</small>
                             <div class="mt-2">
                                 <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View Details</a>
                             </div>
