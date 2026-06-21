@@ -73,14 +73,21 @@
         .table {
             color: var(--dark-text);
         }
+        .table.sortable {
+            width: auto !important;
+            min-width: 100% !important;
+        }
         .table thead th {
             background-color: #202124;
             border-bottom: 1px solid var(--dark-border);
             color: var(--dark-text);
+            vertical-align: middle;
         }
         .table > :not(caption) > * > * {
             color: var(--dark-text);
+            vertical-align: middle;
         }
+
         .table-hover tbody tr:hover {
             background-color: rgba(255, 255, 255, 0.05);
         }
@@ -173,6 +180,19 @@
             font-size: 0.7em;
         }
         .nowrap { white-space: nowrap; }
+        .ola-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .ola-green { background-color: #4caf50; }
+        .ola-yellow { background-color: #ffeb3b; }
+        .ola-orange { background-color: #ff9800; }
+        .ola-red { background-color: #f44336; }
+        .ola-none { background-color: #555; }
+        .text-orange { color: #ff9800; }
     </style>
 </head>
 <body>
@@ -206,6 +226,8 @@
                                     <li><a class="dropdown-item" href="{{ url_for('admin.list_states') }}">States</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('admin.list_types') }}">Types</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('admin.list_categories') }}">Categories</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('admin.org_settings') }}">Org Settings</a></li>
                                 </ul>
                             </li>
                         {% endif %}
@@ -251,7 +273,65 @@
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        var _rsz = null;
+
+        function _colIdx(th) {
+            return Array.prototype.indexOf.call(th.parentNode.children, th);
+        }
+
+        function _colCells(tbl, idx) {
+            var cells = [];
+            tbl.querySelectorAll('tr').forEach(function(tr) {
+                if (tr.children[idx]) cells.push(tr.children[idx]);
+            });
+            return cells;
+        }
+
+        // create grips — direct width on every cell + html width attribute
+        document.querySelectorAll('table.sortable').forEach(function(tbl) {
+            tbl.querySelectorAll('th').forEach(function(th) {
+                var grip = document.createElement('span');
+                grip.className = 'col-grip';
+                grip.style.cssText = 'position:absolute;top:0;right:0;width:12px;height:100%;cursor:col-resize;z-index:2;background:rgba(255,255,255,0.12);';
+                grip.addEventListener('mouseenter', function() { grip.style.background = 'rgba(255,255,255,0.35)'; });
+                grip.addEventListener('mouseleave', function() { grip.style.background = 'rgba(255,255,255,0.12)'; });
+                grip.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    var idx = _colIdx(th);
+                    var tbl = th.closest('table');
+                    _rsz = {
+                        cells: _colCells(tbl, idx),
+                        x: e.clientX,
+                        w: th.offsetWidth
+                    };
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                });
+                th.style.position = 'relative';
+                th.appendChild(grip);
+            });
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!_rsz) return;
+            var w = Math.max(20, _rsz.w + e.clientX - _rsz.x);
+            _rsz.cells.forEach(function(c) {
+                c.style.width = w + 'px';
+                c.style.minWidth = w + 'px';
+                c.style.maxWidth = w + 'px';
+            });
+        });
+
+        document.addEventListener('mouseup', function() {
+            _rsz = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        });
+
+        // sort — skip clicks on the grip
         document.addEventListener('click', function(e) {
+            if (e.target.closest('.col-grip')) return;
             var th = e.target.closest('th');
             if (!th) return;
             var table = th.closest('table.sortable');
@@ -260,7 +340,7 @@
             var tbody = table.querySelector('tbody');
             if (!tbody) return;
 
-            var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+            var idx = _colIdx(th);
             var asc = !th.classList.contains('sort-asc');
             th.classList.toggle('sort-asc', asc);
             th.classList.toggle('sort-desc', !asc);
