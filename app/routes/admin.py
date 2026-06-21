@@ -1,633 +1,579 @@
-import os
-import uuid
-from datetime import datetime, timedelta, timezone
-import csv
-from io import StringIO
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, Response
+from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
 
 from app import db
-from app.models import Case, Comment, Attachment, User, Group, CaseState, CaseType, CaseCategory, OLAEvent
-from app.forms import CaseForm, CommentForm, AssignForm, EditCaseForm
-from app.ola import start_ola, stop_ola, restart_ola, update_ola, get_ola_elapsed
-from app.sla import start_sla, stop_sla, pause_sla, resume_sla, recalculate_sla, update_sla, get_sla_color, get_sla_pct
-from app.email import notify_group_assignment, notify_user_assignment, notify_comment_added, send_email
+from app.models import User, Group, Case, CaseState, CaseType, CaseCategory, OrgSetting
+from app.forms import GroupForm, UserGroupForm, CaseStateForm, AdminPasswordResetForm, CaseTypeForm, CaseCategoryForm, AdminEditUserForm, AdminCreateUserForm, OrgSettingsForm
 
-cases_bp = Blueprint('cases', __name__)
-
-ALLOWED_EXTENSIONS = {
-    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-    'txt', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'zip',
-}
+admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+def admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('Access denied')
+            return redirect(url_for('cases.dashboard'))
+        return f(*args, **kwargs)
+    return decorated
 
 
-def user_group_ids(user):
-    return [g.id for g in user.groups]
-
-
-def _search_filter(query, q, field='all'):
-    if not q:
-        return query
-    like = f'%{q}%'
-    Submitter = db.aliased(User)
-    Assignee = db.aliased(User)
-    field_map = {
-        'title': Case.title.ilike(like),
-        'description': Case.description.ilike(like),
-        'type': Case.case_type.ilike(like),
-        'category': Case.category.ilike(like),
-        'status': Case.status.ilike(like),
-        'submitted_for': Case.submitted_for.ilike(like),
-        'id': Case.id == (int(q) if q.isdigit() else 0),
-        'submitted_by': Submitter.username.ilike(like),
-        'assigned_to': Assignee.username.ilike(like),
-        'group': Group.name.ilike(like),
-        'ola': Case.ola_status == q.lower(),
-        'sla': Case.sla_status == q.lower(),
-    }
-    if field in field_map:
-        if field == 'submitted_by':
-            return query.join(Submitter, Case.user_id == Submitter.id).filter(field_map[field])
-        if field == 'assigned_to':
-            return query.outerjoin(Assignee, Case.assigned_to_id == Assignee.id).filter(field_map[field])
-        if field == 'group':
-            return query.outerjoin(Group, Case.assignment_group_id == Group.id).filter(field_map[field])
-        return query.filter(field_map[field])
-    return query.filter(db.or_(*field_map.values()))
-
-
-def _date_filter(query, date_from, date_to):
-    if date_from:
-        query = query.filter(Case.created_date >= datetime.strptime(date_from, '%Y-%m-%d'))
-    if date_to:
-        query = query.filter(Case.created_date <= datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1))
-    return query
-
-
-@cases_bp.route('/')
-def index():
-    if current_user.is_authenticated:
-        return redirect(url_for('cases.dashboard'))
-    marketing_enabled = os.environ.get('MARKETING_ENABLED', 'true').lower() in ('1', 'true', 'yes')
-    return render_template('index.html', marketing_enabled=marketing_enabled)
-
-
-@cases_bp.route('/dashboard')
+@admin_bp.route('/groups')
 @login_required
-def dashboard():
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-
-    def _base(query):
-        return _date_filter(_search_filter(query, q, field), date_from, date_to)
-
-    if current_user.is_staff:
-        group_ids = user_group_ids(current_user)
-        assigned_cases = _base(Case.query.filter(
-            Case.assigned_to_id == current_user.id,
-            Case.status != 'resolved'
-        )).all()
-        unassigned_cases = _base(Case.query.filter(
-            Case.assignment_group_id.in_(group_ids),
-            Case.assigned_to_id == None,
-            Case.status != 'resolved'
-        )).all() if group_ids else []
-        team_cases = _base(Case.query.filter(
-            Case.assignment_group_id.in_(group_ids),
-            Case.assigned_to_id != None,
-            Case.assigned_to_id != current_user.id,
-            Case.status != 'resolved'
-        )).all() if group_ids else []
-        ola_colors = {}
-        ola_times = {}
-        sla_colors = {}
-        sla_pcts = {}
-        all_cases_list = unassigned_cases + team_cases + assigned_cases
-        for case in all_cases_list:
-            color = update_ola(case)
-            if color:
-                ola_colors[case.id] = color
-                ola_times[case.id] = get_ola_elapsed(case)
-            sla_color = update_sla(case)
-            if sla_color:
-                sla_colors[case.id] = sla_color
-                sla_pcts[case.id] = get_sla_pct(case)
-        return render_template('staff_dashboard.html',
-                               assigned_cases=assigned_cases,
-                               unassigned_cases=unassigned_cases,
-                               team_cases=team_cases,
-                               ola_colors=ola_colors,
-                               ola_times=ola_times,
-                               sla_colors=sla_colors,
-                               sla_pcts=sla_pcts,
-                               q=q, field=field, date_from=date_from, date_to=date_to)
-    else:
-        user_cases = _base(Case.query.filter_by(user_id=current_user.id)).all()
-        return render_template('user_dashboard.html', cases=user_cases, q=q, field=field, date_from=date_from, date_to=date_to)
+@admin_required
+def list_groups():
+    groups = Group.query.all()
+    return render_template('admin/groups.html', groups=groups)
 
 
-@cases_bp.route('/cases')
+@admin_bp.route('/groups/create', methods=['GET', 'POST'])
 @login_required
-def all_cases():
-    if not current_user.is_staff and not current_user.is_admin:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    show_resolved = request.args.get('resolved', '0') == '1'
-    query = Case.query
-    if not show_resolved:
-        query = query.filter(Case.status != 'resolved')
-    query = _date_filter(_search_filter(query, q, field), date_from, date_to)
-    cases = query.order_by(Case.created_date.desc()).all()
-    for case in cases:
-        update_ola(case)
-        update_sla(case)
-    db.session.commit()
-    return render_template('admin/cases.html', cases=cases, show_resolved=show_resolved, q=q, field=field, date_from=date_from, date_to=date_to)
-
-
-def _csv_response(cases, filename):
-    out = StringIO()
-    w = csv.writer(out)
-    w.writerow(['ID', 'Title', 'Description', 'Submitted By', 'Submitted For',
-                'Assigned To', 'Group', 'State', 'Status', 'Type', 'Category',
-                'Created', 'Resolved'])
-    for c in cases:
-        w.writerow([c.id, c.title, c.description, c.user.username,
-                    c.submitted_for or '',
-                    c.assigned_to.username if c.assigned_to else '',
-                    c.assignment_group.name if c.assignment_group else '',
-                    c.state.name if c.state else '', c.status, c.case_type,
-                    c.category, c.created_date, c.resolved_date or ''])
-    return Response(out.getvalue(), mimetype='text/csv',
-                    headers={'Content-Disposition': f'attachment; filename={filename}'})
-
-
-@cases_bp.route('/export/assigned')
-@login_required
-def export_assigned():
-    if not current_user.is_staff:
-        return redirect(url_for('cases.dashboard'))
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    cases = _date_filter(_search_filter(Case.query.filter(
-        Case.assigned_to_id == current_user.id,
-        Case.status != 'resolved'
-    ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
-    return _csv_response(cases, 'assigned_cases.csv')
-
-
-@cases_bp.route('/export/unassigned')
-@login_required
-def export_unassigned():
-    if not current_user.is_staff:
-        return redirect(url_for('cases.dashboard'))
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    group_ids = user_group_ids(current_user)
-    cases = _date_filter(_search_filter(Case.query.filter(
-        Case.assignment_group_id.in_(group_ids),
-        Case.assigned_to_id == None,
-        Case.status != 'resolved'
-    ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all() if group_ids else []
-    return _csv_response(cases, 'unassigned_cases.csv')
-
-
-@cases_bp.route('/export/team')
-@login_required
-def export_team():
-    if not current_user.is_staff:
-        return redirect(url_for('cases.dashboard'))
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    group_ids = user_group_ids(current_user)
-    cases = _date_filter(_search_filter(Case.query.filter(
-        Case.assignment_group_id.in_(group_ids),
-        Case.assigned_to_id != None,
-        Case.assigned_to_id != current_user.id,
-        Case.status != 'resolved'
-    ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all() if group_ids else []
-    return _csv_response(cases, 'team_cases.csv')
-
-
-@cases_bp.route('/export/user')
-@login_required
-def export_user():
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    cases = _date_filter(_search_filter(Case.query.filter_by(user_id=current_user.id), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
-    return _csv_response(cases, 'my_cases.csv')
-
-
-@cases_bp.route('/export/all')
-@login_required
-def export_all_cases():
-    if not current_user.is_staff:
-        return redirect(url_for('cases.dashboard'))
-    q = request.args.get('q', '').strip()
-    field = request.args.get('field', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    show_resolved = request.args.get('resolved', '0') == '1'
-    query = Case.query
-    if not show_resolved:
-        query = query.filter(Case.status != 'resolved')
-    query = _date_filter(_search_filter(query, q, field), date_from, date_to)
-    cases = query.order_by(Case.created_date.desc()).all()
-    return _csv_response(cases, 'all_cases.csv')
-
-
-@cases_bp.route('/submit_case', methods=['GET', 'POST'])
-@login_required
-def submit_case():
-    form = CaseForm()
-    form.case_type.choices = [('', 'Select a type')] + [(t.name, t.name) for t in CaseType.query.order_by(CaseType.sort_order).all()]
-    form.category.choices = [('', 'Select a category')] + [(c.name, c.name) for c in CaseCategory.query.filter_by(hidden=False).order_by(CaseCategory.sort_order).all()]
-    new_state = CaseState.query.filter_by(name='New').first()
-    if current_user.is_staff:
-        states = CaseState.query.filter_by(hidden=False).order_by(CaseState.sort_order).all()
-        form.state_id.choices = [(s.id, s.name) for s in states]
-    else:
-        del form.state_id
-    if not form.submitted_for.data:
-        form.submitted_for.data = current_user.username
+@admin_required
+def create_group():
+    form = GroupForm()
+    staff_users = User.query.filter_by(is_staff=True).order_by(User.username).all()
+    form.manager_id.choices = [(0, '— No manager —')] + [(u.id, u.username) for u in staff_users]
+    if not form.is_submitted():
+        form.business_hours_days.data = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        form.manager_id.data = 0
     if form.validate_on_submit():
-        triage_group = Group.query.filter_by(name='Triage').first()
-        case = Case(
-            title=form.title.data,
+        existing = Group.query.filter_by(name=form.name.data).first()
+        if existing:
+            flash('A group with that name already exists')
+            return render_template('admin/group_form.html', form=form, title='Create Group')
+        group = Group(
+            name=form.name.data,
             description=form.description.data,
-            case_type=form.case_type.data,
-            category=form.category.data,
-            user_id=current_user.id,
-            assignment_group_id=triage_group.id if triage_group else None,
-            state_id=form.state_id.data if current_user.is_staff and form.state_id.data else (new_state.id if new_state else None),
-            submitted_for=form.submitted_for.data,
+            hidden=form.hidden.data,
+            business_hours_start=form.business_hours_start.data,
+            business_hours_end=form.business_hours_end.data,
+            business_hours_days=','.join(form.business_hours_days.data),
+            manager_id=form.manager_id.data if form.manager_id.data else None,
+            ola_hours=form.ola_hours.data if form.ola_hours.data else 2.0
         )
-        db.session.add(case)
+        db.session.add(group)
         db.session.commit()
-        if case.assignment_group_id:
-            start_ola(case)
-        start_sla(case)
-        notify_group_assignment(case)
-        flash('Case submitted successfully')
-        return redirect(url_for('cases.dashboard'))
-    return render_template('submit_case.html', form=form)
+        flash(f'Group "{group.name}" created')
+        return redirect(url_for('admin.list_groups'))
+    return render_template('admin/group_form.html', form=form, title='Create Group')
 
 
-@cases_bp.route('/case/<int:case_id>/edit', methods=['GET', 'POST'])
+@admin_bp.route('/groups/<int:group_id>/edit', methods=['GET', 'POST'])
 @login_required
-def edit_case(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff and case.user_id != current_user.id:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    if not current_user.is_staff and case.user_id == current_user.id and case.status != 'open':
-        flash('Cannot edit a resolved case')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-
-    form = EditCaseForm(obj=case)
-    form.case_type.choices = [('', 'Select a type')] + [(t.name, t.name) for t in CaseType.query.filter_by(hidden=False).order_by(CaseType.sort_order).all()]
-    form.category.choices = [('', 'Select a category')] + [(c.name, c.name) for c in CaseCategory.query.filter_by(hidden=False).order_by(CaseCategory.sort_order).all()]
-    if current_user.is_staff:
-        states = CaseState.query.filter_by(hidden=False).order_by(CaseState.sort_order).all()
-        form.state_id.choices = [(s.id, s.name) for s in states]
-    else:
-        del form.state_id
-
+@admin_required
+def edit_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    form = GroupForm(obj=group)
+    staff_users = User.query.filter_by(is_staff=True).order_by(User.username).all()
+    form.manager_id.choices = [(0, '— No manager —')] + [(u.id, u.username) for u in staff_users]
+    if not form.is_submitted():
+        form.business_hours_days.data = group.business_hours_days.split(',') if group.business_hours_days else []
+        form.manager_id.data = group.manager_id or 0
     if form.validate_on_submit():
-        old_state_id = case.state_id
-        old_type_name = case.case_type
-
-        case.title = form.title.data
-        case.description = form.description.data
-        case.case_type = form.case_type.data
-        case.category = form.category.data
-        case.submitted_for = form.submitted_for.data
-
-        state_changed = False
-        if current_user.is_staff:
-            new_state_id = form.state_id.data if form.state_id.data else None
-            if new_state_id != old_state_id:
-                state_changed = True
-                reason = (form.state_change_reason.data or '').strip()
-                if not reason:
-                    flash('A reason is required when changing the case state')
-                    return render_template('edit_case.html', form=form, case=case)
-                comment = Comment(
-                    content=f'State changed: {reason}',
-                    user_id=current_user.id,
-                    case_id=case_id,
-                )
-                db.session.add(comment)
-            case.state_id = new_state_id
-
+        duplicate = Group.query.filter(
+            Group.name == form.name.data, Group.id != group_id
+        ).first()
+        if duplicate:
+            flash('A group with that name already exists')
+            return render_template('admin/group_form.html', form=form, title='Edit Group', group=group)
+        group.name = form.name.data
+        group.description = form.description.data
+        group.hidden = form.hidden.data
+        group.business_hours_start = form.business_hours_start.data
+        group.business_hours_end = form.business_hours_end.data
+        group.business_hours_days = ','.join(form.business_hours_days.data)
+        group.manager_id = form.manager_id.data if form.manager_id.data else None
+        group.ola_hours = form.ola_hours.data if form.ola_hours.data else 2.0
         db.session.commit()
-
-        # SLA handling
-        waiting_state = CaseState.query.filter_by(name='Waiting on Resolution Approval').first()
-        old_was_waiting = old_state_id and waiting_state and old_state_id == waiting_state.id
-        new_is_waiting = case.state_id and waiting_state and case.state_id == waiting_state.id
-
-        if state_changed:
-            if case.status == 'resolved':
-                stop_sla(case)
-            elif new_is_waiting and not old_was_waiting:
-                pause_sla(case)
-            elif old_was_waiting and not new_is_waiting:
-                resume_sla(case)
-
-        # Recalculate SLA if case type changed
-        if case.case_type != old_type_name:
-            recalculate_sla(case, old_type_name=old_type_name)
-
-        flash('Case updated successfully')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-
-    if current_user.is_staff:
-        form.state_id.data = case.state_id
-    return render_template('edit_case.html', form=form, case=case)
+        flash('Group updated')
+        return redirect(url_for('admin.list_groups'))
+    return render_template('admin/group_form.html', form=form, title='Edit Group', group=group)
 
 
-@cases_bp.route('/case/<int:case_id>')
+@admin_bp.route('/groups/<int:group_id>/delete', methods=['POST'])
 @login_required
-def view_case(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff and case.user_id != current_user.id:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-
-    comment_form = CommentForm()
-    assign_form = AssignForm()
-
-    if current_user.is_staff and (current_user.is_admin or case.assignment_group_id in user_group_ids(current_user)):
-        if current_user.is_admin:
-            group_users = User.query.filter_by(is_staff=True).order_by(User.username).all()
-        else:
-            group_ids = user_group_ids(current_user)
-            group_users = User.query.filter(
-                User.is_staff == True,
-                User.groups.any(Group.id.in_(group_ids))
-            ).order_by(User.username).all()
-        assign_form.assigned_to.choices = [
-            (u.id, u.username) for u in group_users
-        ]
-    else:
-        assign_form.assigned_to.choices = []
-
-    all_groups = Group.query.order_by(Group.name).all() if current_user.is_admin else []
-
-    ola_color = update_ola(case)
-    ola_elapsed = get_ola_elapsed(case)
-    sla_color = update_sla(case)
-    sla_pct = get_sla_pct(case)
-
-    return render_template('view_case.html', case=case,
-                           comment_form=comment_form,
-                           assign_form=assign_form,
-                           all_groups=all_groups,
-                           ola_color=ola_color,
-                           ola_elapsed=ola_elapsed,
-                           sla_color=sla_color,
-                           sla_pct=sla_pct)
+@admin_required
+def delete_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    if group.users:
+        flash('Cannot delete a group that has members. Remove all members first.')
+        return redirect(url_for('admin.view_group', group_id=group_id))
+    db.session.delete(group)
+    db.session.commit()
+    flash('Group deleted')
+    return redirect(url_for('admin.list_groups'))
 
 
-@cases_bp.route('/case/<int:case_id>/comment', methods=['POST'])
+@admin_bp.route('/groups/<int:group_id>')
 @login_required
-def add_comment(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff and case.user_id != current_user.id:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    form = CommentForm()
+@admin_required
+def view_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    form = UserGroupForm()
+    available_users = User.query.filter(
+        ~User.groups.any(Group.id == group_id)
+    ).order_by(User.username).all()
+    form.user_id.choices = [(u.id, f'{u.username} ({u.email})') for u in available_users]
+    return render_template('admin/group_detail.html', group=group, form=form)
+
+
+@admin_bp.route('/groups/<int:group_id>/users/add', methods=['POST'])
+@login_required
+@admin_required
+def add_user_to_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    form = UserGroupForm()
+    available_users = User.query.filter(
+        ~User.groups.any(Group.id == group_id)
+    ).order_by(User.username).all()
+    form.user_id.choices = [(u.id, u.username) for u in available_users]
     if form.validate_on_submit():
-        comment = Comment(
-            content=form.content.data,
-            user_id=current_user.id,
-            case_id=case_id,
+        user = User.query.get(form.user_id.data)
+        if user and user not in group.users:
+            group.users.append(user)
+            db.session.commit()
+            flash(f'Added {user.username} to {group.name}')
+    return redirect(url_for('admin.view_group', group_id=group_id))
+
+
+@admin_bp.route('/groups/<int:group_id>/users/<int:user_id>/remove', methods=['POST'])
+@login_required
+@admin_required
+def remove_user_from_group(group_id, user_id):
+    group = Group.query.get_or_404(group_id)
+    user = User.query.get_or_404(user_id)
+    if user in group.users:
+        group.users.remove(user)
+        db.session.commit()
+        flash(f'Removed {user.username} from {group.name}')
+    return redirect(url_for('admin.view_group', group_id=group_id))
+
+
+@admin_bp.route('/groups/<int:group_id>/toggle', methods=['POST'])
+@login_required
+@admin_required
+def toggle_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    group.hidden = not group.hidden
+    db.session.commit()
+    status = 'hidden' if group.hidden else 'visible'
+    flash(f'Group "{group.name}" is now {status}')
+    return redirect(url_for('admin.list_groups'))
+
+
+@admin_bp.route('/users')
+@login_required
+@admin_required
+def list_users():
+    users = User.query.order_by(User.username).all()
+    return render_template('admin/users.html', users=users)
+
+
+@admin_bp.route('/users/<int:user_id>/toggle-staff', methods=['POST'])
+@login_required
+@admin_required
+def toggle_staff(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash('You cannot change your own staff status')
+        return redirect(url_for('admin.list_users'))
+    user.is_staff = not user.is_staff
+    db.session.commit()
+    status = 'granted' if user.is_staff else 'removed'
+    flash(f'Staff access {status} for {user.username}')
+    return redirect(url_for('admin.list_users'))
+
+
+@admin_bp.route('/users/<int:user_id>/toggle-admin', methods=['POST'])
+@login_required
+@admin_required
+def toggle_admin(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash('You cannot change your own admin status')
+        return redirect(url_for('admin.list_users'))
+    user.is_admin = not user.is_admin
+    db.session.commit()
+    status = 'granted' if user.is_admin else 'removed'
+    flash(f'Admin access {status} for {user.username}')
+    return redirect(url_for('admin.list_users'))
+
+
+@admin_bp.route('/users/<int:user_id>')
+@login_required
+@admin_required
+def view_user(user_id):
+    user = User.query.get_or_404(user_id)
+    all_groups = Group.query.order_by(Group.name).all()
+    return render_template('admin/user_detail.html', user=user, all_groups=all_groups)
+
+
+@admin_bp.route('/users/<int:user_id>/reset-password', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def reset_password(user_id):
+    user = User.query.get_or_404(user_id)
+    form = AdminPasswordResetForm()
+    if form.validate_on_submit():
+        user.set_password(form.new_password.data)
+        db.session.commit()
+        flash(f'Password reset for {user.username}')
+        return redirect(url_for('admin.view_user', user_id=user_id))
+    return render_template('admin/reset_password.html', form=form, user=user)
+
+
+@admin_bp.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_user(user_id):
+    user = User.query.get_or_404(user_id)
+    form = AdminEditUserForm(obj=user)
+    if form.validate_on_submit():
+        if form.username.data != user.username and User.query.filter_by(username=form.username.data).first():
+            flash('Username already taken')
+            return render_template('admin/edit_user.html', form=form, user=user)
+        if form.email.data != user.email and User.query.filter_by(email=form.email.data).first():
+            flash('Email already taken')
+            return render_template('admin/edit_user.html', form=form, user=user)
+        user.username = form.username.data
+        user.email = form.email.data
+        db.session.commit()
+        flash('User updated')
+        return redirect(url_for('admin.view_user', user_id=user_id))
+    return render_template('admin/edit_user.html', form=form, user=user)
+
+
+@admin_bp.route('/users/create', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def create_user():
+    form = AdminCreateUserForm()
+    if form.validate_on_submit():
+        if User.query.filter_by(username=form.username.data).first():
+            flash('Username already taken')
+            return render_template('admin/create_user.html', form=form)
+        if User.query.filter_by(email=form.email.data).first():
+            flash('Email already taken')
+            return render_template('admin/create_user.html', form=form)
+        user = User(
+            username=form.username.data,
+            email=form.email.data,
+            is_staff=form.is_staff.data,
+            is_admin=form.is_admin.data
         )
-        db.session.add(comment)
+        user.set_password(form.password.data)
+        db.session.add(user)
         db.session.commit()
-        notify_comment_added(comment, case, current_user)
-        flash('Comment added successfully')
-    return redirect(url_for('cases.view_case', case_id=case_id))
+        flash(f'User "{user.username}" created')
+        return redirect(url_for('admin.list_users'))
+    return render_template('admin/create_user.html', form=form)
 
 
-@cases_bp.route('/case/<int:case_id>/assign', methods=['POST'])
+@admin_bp.route('/users/<int:user_id>/groups/<int:group_id>/add', methods=['POST'])
 @login_required
-def assign_case(case_id):
-    if not current_user.is_staff:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    case = Case.query.get_or_404(case_id)
-    form = AssignForm()
-    if current_user.is_admin:
-        group_users = User.query.filter_by(is_staff=True).order_by(User.username).all()
-    else:
-        group_ids = user_group_ids(current_user)
-        group_users = User.query.filter(
-            User.is_staff == True,
-            User.groups.any(Group.id.in_(group_ids))
-        ).all()
-    form.assigned_to.choices = [(u.id, u.username) for u in group_users]
+@admin_required
+def add_group_to_user(user_id, group_id):
+    user = User.query.get_or_404(user_id)
+    group = Group.query.get_or_404(group_id)
+    if group not in user.groups:
+        user.groups.append(group)
+        db.session.commit()
+        flash(f'Added {user.username} to {group.name}')
+    return redirect(url_for('admin.view_user', user_id=user_id))
+
+
+@admin_bp.route('/users/<int:user_id>/groups/<int:group_id>/remove', methods=['POST'])
+@login_required
+@admin_required
+def remove_group_from_user(user_id, group_id):
+    user = User.query.get_or_404(user_id)
+    group = Group.query.get_or_404(group_id)
+    if group in user.groups:
+        user.groups.remove(group)
+        db.session.commit()
+        flash(f'Removed {user.username} from {group.name}')
+    return redirect(url_for('admin.view_user', user_id=user_id))
+
+
+@admin_bp.route('/cases')
+@login_required
+@admin_required
+def all_cases():
+    return redirect(url_for('cases.all_cases'))
+
+
+@admin_bp.route('/states')
+@login_required
+@admin_required
+def list_states():
+    states = CaseState.query.order_by(CaseState.sort_order).all()
+    return render_template('admin/states.html', states=states)
+
+
+@admin_bp.route('/states/create', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def create_state():
+    form = CaseStateForm()
     if form.validate_on_submit():
-        user = User.query.get(form.assigned_to.data)
-        if user:
-            if current_user.is_admin:
-                case.assigned_to_id = user.id
-                stop_ola(case)
-                db.session.commit()
-                notify_user_assignment(case, user)
-                flash('Case assigned successfully')
-            else:
-                user_group_ids_set = set(g.id for g in user.groups)
-                if set(group_ids) & user_group_ids_set:
-                    case.assigned_to_id = user.id
-                    stop_ola(case)
-                    db.session.commit()
-                    notify_user_assignment(case, user)
-                    flash('Case assigned successfully')
-                else:
-                    flash('Invalid assignment')
-        else:
-            flash('Invalid assignment')
-    return redirect(url_for('cases.dashboard'))
-
-
-@cases_bp.route('/case/<int:case_id>/resolve', methods=['POST'])
-@login_required
-def resolve_case(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    if case.assigned_to_id != current_user.id:
-        flash('Only the assigned staff member can resolve this case')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    reason = (request.form.get('resolve_reason') or '').strip()
-    if not reason:
-        flash('A resolution reason is required')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    comment = Comment(
-        content=f'Case resolved: {reason}',
-        user_id=current_user.id,
-        case_id=case_id,
-    )
-    db.session.add(comment)
-    case.resolved_date = datetime.utcnow()
-    case.status = 'resolved'
-    db.session.commit()
-    stop_sla(case)
-    flash('Case resolved successfully')
-    return redirect(url_for('cases.dashboard'))
-
-
-@cases_bp.route('/case/<int:case_id>/take', methods=['POST'])
-@login_required
-def take_case(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    if not current_user.is_admin and case.assignment_group_id not in user_group_ids(current_user):
-        flash('You are not a member of this case\'s group')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    if case.status != 'open':
-        flash('Only open cases can be assigned')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    case.assigned_to_id = current_user.id
-    stop_ola(case)
-    db.session.commit()
-    flash('You have taken ownership of this case')
-    return redirect(url_for('cases.view_case', case_id=case_id))
-
-
-@cases_bp.route('/case/<int:case_id>/transfer', methods=['POST'])
-@login_required
-def transfer_case(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    group_id = request.form.get('group_id', type=int)
-    if not group_id:
-        flash('No group selected')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    target_group = Group.query.get(group_id)
-    if not target_group:
-        flash('Invalid group')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    if not current_user.is_admin and target_group not in current_user.groups:
-        flash('You can only transfer cases to groups you belong to')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    if not current_user.is_admin and case.assignment_group_id not in user_group_ids(current_user):
-        flash('You are not a member of this case\'s current group')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    case.assignment_group_id = group_id
-    case.assigned_to_id = None
-    db.session.commit()
-    restart_ola(case)
-    notify_group_assignment(case)
-    flash(f'Case transferred to {target_group.name}')
-    return redirect(url_for('cases.view_case', case_id=case_id))
-
-
-@cases_bp.route('/upload_attachment/<int:case_id>', methods=['POST'])
-@login_required
-def upload_attachment(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff and case.user_id != current_user.id:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    if 'file' not in request.files:
-        flash('No file selected')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    file = request.files['file']
-    if file.filename == '':
-        flash('No file selected')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    if not allowed_file(file.filename):
-        flash('File type not allowed')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    if file:
-        original_filename = secure_filename(file.filename)
-        unique_filename = str(uuid.uuid4()) + '_' + original_filename
-        filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_filename)
-        file.save(filepath)
-        attachment = Attachment(
-            filename=original_filename,
-            filepath=filepath,
-            case_id=case_id,
-        )
-        db.session.add(attachment)
+        existing = CaseState.query.filter_by(name=form.name.data).first()
+        if existing:
+            flash('A state with that name already exists')
+            return render_template('admin/state_form.html', form=form, title='Create State')
+        state = CaseState(name=form.name.data, sort_order=form.sort_order.data)
+        db.session.add(state)
         db.session.commit()
-        flash('File uploaded successfully')
-    return redirect(url_for('cases.view_case', case_id=case_id))
+        flash(f'State "{state.name}" created')
+        return redirect(url_for('admin.list_states'))
+    return render_template('admin/state_form.html', form=form, title='Create State')
 
 
-@cases_bp.route('/case/<int:case_id>/email-customer', methods=['POST'])
+@admin_bp.route('/states/<int:state_id>/edit', methods=['GET', 'POST'])
 @login_required
-def email_customer(case_id):
-    case = Case.query.get_or_404(case_id)
-    if not current_user.is_staff:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    subject = request.form.get('subject', '').strip()
-    body = request.form.get('body', '').strip()
-    if not subject or not body:
-        flash('Subject and body are required')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    to = case.submitted_for or case.user.email
-    if not to:
-        flash('No recipient email available')
-        return redirect(url_for('cases.view_case', case_id=case_id))
-    send_email(to, f'[Case #{case.id}] {subject}', body, case_id=case.id)
-    flash(f'Email sent to {to}')
-    return redirect(url_for('cases.view_case', case_id=case_id))
+@admin_required
+def edit_state(state_id):
+    state = CaseState.query.get_or_404(state_id)
+    form = CaseStateForm(obj=state)
+    if form.validate_on_submit():
+        duplicate = CaseState.query.filter(
+            CaseState.name == form.name.data, CaseState.id != state_id
+        ).first()
+        if duplicate:
+            flash('A state with that name already exists')
+            return render_template('admin/state_form.html', form=form, title='Edit State', state=state)
+        state.name = form.name.data
+        state.sort_order = form.sort_order.data
+        db.session.commit()
+        flash('State updated')
+        return redirect(url_for('admin.list_states'))
+    return render_template('admin/state_form.html', form=form, title='Edit State', state=state)
 
 
-@cases_bp.route('/download/<int:attachment_id>')
+@admin_bp.route('/states/<int:state_id>/delete', methods=['POST'])
 @login_required
-def download_attachment(attachment_id):
-    attachment = Attachment.query.get_or_404(attachment_id)
-    case = Case.query.get_or_404(attachment.case_id)
-    if not current_user.is_staff and case.user_id != current_user.id:
-        flash('Access denied')
-        return redirect(url_for('cases.dashboard'))
-    return send_file(attachment.filepath, as_attachment=True,
-                     download_name=attachment.filename)
+@admin_required
+def delete_state(state_id):
+    state = CaseState.query.get_or_404(state_id)
+    cases_using = Case.query.filter_by(state_id=state_id).count()
+    if cases_using:
+        flash(f'Cannot delete "{state.name}" — {cases_using} case(s) are using it')
+        return redirect(url_for('admin.list_states'))
+    db.session.delete(state)
+    db.session.commit()
+    flash('State deleted')
+    return redirect(url_for('admin.list_states'))
 
 
-@cases_bp.route('/api/cases')
+@admin_bp.route('/states/<int:state_id>/toggle', methods=['POST'])
 @login_required
-def api_cases():
-    if current_user.is_staff:
-        group_ids = user_group_ids(current_user)
-        cases = Case.query.filter(Case.assignment_group_id.in_(group_ids)).all() if group_ids else []
-    else:
-        cases = Case.query.filter_by(user_id=current_user.id).all()
-    return jsonify([{
-        'id': case.id,
-        'title': case.title,
-        'description': case.description,
-        'created_date': case.created_date.isoformat(),
-        'status': case.status,
-        'assigned_to': case.assigned_to.username if case.assigned_to else None,
-    } for case in cases])
+@admin_required
+def toggle_state(state_id):
+    state = CaseState.query.get_or_404(state_id)
+    state.hidden = not state.hidden
+    db.session.commit()
+    status = 'hidden' if state.hidden else 'visible'
+    flash(f'State "{state.name}" is now {status}')
+    return redirect(url_for('admin.list_states'))
+
+
+# ---- Case Types ----
+
+@admin_bp.route('/types')
+@login_required
+@admin_required
+def list_types():
+    types = CaseType.query.order_by(CaseType.sort_order).all()
+    return render_template('admin/list_options.html',
+                           title='Case Types', items=types,
+                           create_url='admin.create_type',
+                           edit_url='admin.edit_type',
+                           delete_url='admin.delete_type',
+                           label='type')
+
+
+@admin_bp.route('/types/create', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def create_type():
+    form = CaseTypeForm()
+    if form.validate_on_submit():
+        existing = CaseType.query.filter_by(name=form.name.data).first()
+        if existing:
+            flash('A type with that name already exists')
+            return render_template('admin/option_form.html', form=form, title='Create Type', label='type')
+        sla = 0
+        if form.sla_hours.data:
+            try:
+                sla = float(form.sla_hours.data)
+            except ValueError:
+                pass
+        item = CaseType(name=form.name.data, sort_order=form.sort_order.data, sla_hours=sla)
+        db.session.add(item)
+        db.session.commit()
+        flash(f'Type "{item.name}" created')
+        return redirect(url_for('admin.list_types'))
+    return render_template('admin/option_form.html', form=form, title='Create Type', label='type')
+
+
+@admin_bp.route('/types/<int:item_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_type(item_id):
+    item = CaseType.query.get_or_404(item_id)
+    form = CaseTypeForm(obj=item)
+    if form.validate_on_submit():
+        dup = CaseType.query.filter(CaseType.name == form.name.data, CaseType.id != item_id).first()
+        if dup:
+            flash('A type with that name already exists')
+            return render_template('admin/option_form.html', form=form, title='Edit Type', label='type', item=item)
+        item.name = form.name.data
+        item.sort_order = form.sort_order.data
+        sla = 0
+        if form.sla_hours.data:
+            try:
+                sla = float(form.sla_hours.data)
+            except ValueError:
+                pass
+        item.sla_hours = sla
+        db.session.commit()
+        flash('Type updated')
+        return redirect(url_for('admin.list_types'))
+    return render_template('admin/option_form.html', form=form, title='Edit Type', label='type', item=item)
+
+
+@admin_bp.route('/types/<int:item_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_type(item_id):
+    item = CaseType.query.get_or_404(item_id)
+    in_use = Case.query.filter_by(case_type=item.name).count()
+    if in_use:
+        flash(f'Cannot delete "{item.name}" — {in_use} case(s) are using it')
+        return redirect(url_for('admin.list_types'))
+    db.session.delete(item)
+    db.session.commit()
+    flash('Type deleted')
+    return redirect(url_for('admin.list_types'))
+
+
+@admin_bp.route('/types/<int:item_id>/toggle', methods=['POST'])
+@login_required
+@admin_required
+def toggle_type(item_id):
+    item = CaseType.query.get_or_404(item_id)
+    item.hidden = not item.hidden
+    db.session.commit()
+    status = 'hidden' if item.hidden else 'visible'
+    flash(f'Type "{item.name}" is now {status}')
+    return redirect(url_for('admin.list_types'))
+
+
+# ---- Case Categories ----
+
+@admin_bp.route('/categories')
+@login_required
+@admin_required
+def list_categories():
+    items = CaseCategory.query.order_by(CaseCategory.sort_order).all()
+    return render_template('admin/list_options.html',
+                           title='Case Categories', items=items,
+                           create_url='admin.create_category',
+                           edit_url='admin.edit_category',
+                           delete_url='admin.delete_category',
+                           label='category')
+
+
+@admin_bp.route('/categories/create', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def create_category():
+    form = CaseCategoryForm()
+    if form.validate_on_submit():
+        existing = CaseCategory.query.filter_by(name=form.name.data).first()
+        if existing:
+            flash('A category with that name already exists')
+            return render_template('admin/option_form.html', form=form, title='Create Category', label='category')
+        item = CaseCategory(name=form.name.data, sort_order=form.sort_order.data)
+        db.session.add(item)
+        db.session.commit()
+        flash(f'Category "{item.name}" created')
+        return redirect(url_for('admin.list_categories'))
+    return render_template('admin/option_form.html', form=form, title='Create Category', label='category')
+
+
+@admin_bp.route('/categories/<int:item_id>/edit', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def edit_category(item_id):
+    item = CaseCategory.query.get_or_404(item_id)
+    form = CaseCategoryForm(obj=item)
+    if form.validate_on_submit():
+        dup = CaseCategory.query.filter(CaseCategory.name == form.name.data, CaseCategory.id != item_id).first()
+        if dup:
+            flash('A category with that name already exists')
+            return render_template('admin/option_form.html', form=form, title='Edit Category', label='category', item=item)
+        item.name = form.name.data
+        item.sort_order = form.sort_order.data
+        db.session.commit()
+        flash('Category updated')
+        return redirect(url_for('admin.list_categories'))
+    return render_template('admin/option_form.html', form=form, title='Edit Category', label='category', item=item)
+
+
+@admin_bp.route('/categories/<int:item_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_category(item_id):
+    item = CaseCategory.query.get_or_404(item_id)
+    in_use = Case.query.filter_by(category=item.name).count()
+    if in_use:
+        flash(f'Cannot delete "{item.name}" — {in_use} case(s) are using it')
+        return redirect(url_for('admin.list_categories'))
+    db.session.delete(item)
+    db.session.commit()
+    flash('Category deleted')
+    return redirect(url_for('admin.list_categories'))
+
+
+@admin_bp.route('/categories/<int:item_id>/toggle', methods=['POST'])
+@login_required
+@admin_required
+def toggle_category(item_id):
+    item = CaseCategory.query.get_or_404(item_id)
+    item.hidden = not item.hidden
+    db.session.commit()
+    status = 'hidden' if item.hidden else 'visible'
+    flash(f'Category "{item.name}" is now {status}')
+    return redirect(url_for('admin.list_categories'))
+
+
+# ---- Org Settings ----
+
+@admin_bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def org_settings():
+    org = OrgSetting.get()
+    form = OrgSettingsForm(obj=org)
+    if not form.is_submitted():
+        form.business_hours_days.data = org.business_hours_days.split(',') if org.business_hours_days else []
+    if form.validate_on_submit():
+        org.business_hours_start = form.business_hours_start.data
+        org.business_hours_end = form.business_hours_end.data
+        org.business_hours_days = ','.join(form.business_hours_days.data)
+        org.smtp_server = form.smtp_server.data or ''
+        if form.smtp_port.data:
+            try:
+                org.smtp_port = int(form.smtp_port.data)
+            except ValueError:
+                pass
+        org.smtp_username = form.smtp_username.data or ''
+        if form.smtp_password.data:
+            org.smtp_password = form.smtp_password.data
+        org.smtp_from_email = form.smtp_from_email.data or ''
+        org.smtp_use_tls = form.smtp_use_tls.data
+        db.session.commit()
+        flash('Organization settings updated')
+        return redirect(url_for('admin.org_settings'))
+    return render_template('admin/settings.html', form=form)
