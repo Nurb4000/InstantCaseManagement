@@ -23,6 +23,38 @@
                             <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
+                    <div class="mb-3 form-check">
+                        {{ form.hidden(class="form-check-input") }}
+                        {{ form.hidden.label(class="form-check-label") }}
+                    </div>
+                    <div class="mb-3">
+                        {{ form.manager_id.label(class="form-label") }}
+                        {{ form.manager_id(class="form-select") }}
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            {{ form.business_hours_start.label(class="form-label") }}
+                            {{ form.business_hours_start(class="form-select") }}
+                        </div>
+                        <div class="col-md-4">
+                            {{ form.business_hours_end.label(class="form-label") }}
+                            {{ form.business_hours_end(class="form-select") }}
+                        </div>
+                        <div class="col-md-4">
+                            {{ form.ola_hours.label(class="form-label") }}
+                            {{ form.ola_hours(class="form-control", placeholder="2.0") }}
+                            {% for error in form.ola_hours.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        {{ form.business_hours_days.label(class="form-label") }}
+                        {{ form.business_hours_days(class="form-select", multiple=True, size=7) }}
+                        {% for error in form.business_hours_days.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary">{{ 'Save' if group else 'Create' }}</button>
                         <a href="{{ url_for('admin.list_groups') }}" class="btn btn-secondary">Cancel</a>
