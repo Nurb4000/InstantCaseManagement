@@ -12,6 +12,11 @@
     <p class="text-muted mb-4">{{ group.description }}</p>
 {% endif %}
 
+{% if group.manager %}
+    <p class="mb-1">Manager: <strong>{{ group.manager.username }}</strong></p>
+{% endif %}
+<p class="mb-4">OLA Target: <strong>{{ group.ola_hours }} business hours</strong></p>
+
 <div class="row">
     <div class="col-md-6">
         <div class="card">
