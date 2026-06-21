@@ -54,6 +54,16 @@
                             {% endfor %}
                         </div>
                         {% endif %}
+                        {% if current_user.is_staff %}
+                        <div class="mb-3">
+                            {{ form.state_change_reason.label(class="form-label") }}
+                            {{ form.state_change_reason(class="form-control", rows="2", placeholder="Required when changing the case state") }}
+                            {% for error in form.state_change_reason.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                            <small class="text-muted">A reason is required if you change the case state.</small>
+                        </div>
+                        {% endif %}
                     </div>
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary">Save Changes</button>
