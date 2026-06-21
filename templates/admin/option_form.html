@@ -23,6 +23,16 @@
                             <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
+                    {% if label == 'type' and form.sla_hours is defined %}
+                    <div class="mb-3">
+                        {{ form.sla_hours.label(class="form-label") }}
+                        {{ form.sla_hours(class="form-control", placeholder="e.g. 4, 8, 24") }}
+                        <small class="text-muted">SLA target in business hours (0 = no SLA)</small>
+                        {% for error in form.sla_hours.errors %}
+                            <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary">{{ 'Save' if item else 'Create' }}</button>
                         {% if label == 'type' %}
