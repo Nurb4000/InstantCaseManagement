@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">
+                <i class="fas fa-comment-dots"></i>
+                {% if current_user.is_staff %}Staff Chat{% else %}Support Chat{% endif %}
+            </h2>
+            <button class="btn btn-outline-secondary btn-sm" onclick="clearHistory()">
+                <i class="fas fa-trash-alt"></i> Clear History
+            </button>
+        </div>
+        <div class="card">
+            <div class="card-body p-0 d-flex flex-column" style="height: 65vh;">
+                <div id="messages" class="flex-grow-1 overflow-auto p-3" style="min-height: 0;">
+                    <div class="text-center text-muted py-5" id="welcome-msg">
+                        <i class="fas fa-robot fa-3x mb-3"></i>
+                        <p>Start a conversation below.</p>
+                    </div>
+                </div>
+                <div class="border-top border-secondary p-3">
+                    <form id="chat-form" class="d-flex gap-2" autocomplete="off">
+                        <input type="text" id="chat-input" class="form-control" placeholder="Type your message..." autofocus>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const chatEndpoint = '{{ url_for("chat.chat_staff" if current_user.is_staff else "chat.chat_user") }}';
+    const messagesEl = document.getElementById('messages');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const welcomeMsg = document.getElementById('welcome-msg');
+
+    let chatHistory = [];
+
+    try {
+        const saved = localStorage.getItem('case_chat_history');
+        if (saved) {
+            chatHistory = JSON.parse(saved);
+            chatHistory.forEach(msg => appendMessage(msg.role, msg.content));
+        }
+    } catch (e) {}
+
+    function saveHistory() {
+        localStorage.setItem('case_chat_history', JSON.stringify(chatHistory));
+    }
+
+    function scrollToBottom() {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function appendMessage(role, text) {
+        welcomeMsg.style.display = 'none';
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `d-flex mb-3 ${role === 'user' ? 'justify-content-end' : 'justify-content-start'}`;
+        msgDiv.innerHTML = `
+            <div class="${role === 'user' ? 'bg-primary text-white' : 'bg-secondary text-white'} rounded-3 px-3 py-2" style="max-width: 75%; word-wrap: break-word;">
+                <small class="opacity-75 fw-bold">${role === 'user' ? 'You' : 'Assistant'}</small>
+                <div class="mt-1 chat-text">${escapeHtml(text)}</div>
+            </div>
+        `;
+        messagesEl.appendChild(msgDiv);
+        scrollToBottom();
+    }
+
+    function appendStreamingMessage() {
+        welcomeMsg.style.display = 'none';
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'd-flex mb-3 justify-content-start';
+        msgDiv.innerHTML = `
+            <div class="bg-secondary text-white rounded-3 px-3 py-2" style="max-width: 75%; word-wrap: break-word;">
+                <small class="opacity-75 fw-bold">Assistant</small>
+                <div class="mt-1 chat-text streaming"></div>
+            </div>
+        `;
+        messagesEl.appendChild(msgDiv);
+        scrollToBottom();
+        return msgDiv.querySelector('.chat-text');
+    }
+
+    function clearHistory() {
+        if (!confirm('Clear all chat history?')) return;
+        chatHistory = [];
+        saveHistory();
+        messagesEl.querySelectorAll('.d-flex.mb-3').forEach(el => el.remove());
+        welcomeMsg.style.display = '';
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatChatText(text) {
+        let formatted = escapeHtml(text);
+        formatted = formatted.replace(/\n/g, '<br>');
+        return formatted;
+    }
+
+    chatForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text) return;
+
+        chatInput.value = '';
+        chatInput.disabled = true;
+
+        appendMessage('user', text);
+        chatHistory.push({ role: 'user', content: text });
+        saveHistory();
+
+        const contentEl = appendStreamingMessage();
+        let fullResponse = '';
+
+        try {
+            const resp = await fetch(chatEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: chatHistory }),
+            });
+
+            if (!resp.ok) {
+                let msg = 'Request failed';
+                try {
+                    const err = await resp.json();
+                    msg = err.error || msg;
+                } catch {
+                    msg = `${resp.status} ${resp.statusText}`;
+                }
+                contentEl.innerHTML = `<span class="text-danger">Error: ${msg}</span>`;
+                return;
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.error) {
+                                contentEl.innerHTML = `<span class="text-danger">Error: ${data.error}</span>`;
+                                return;
+                            }
+                            const delta = data.choices?.[0]?.delta?.content || '';
+                            fullResponse += delta;
+                            contentEl.innerHTML = formatChatText(fullResponse);
+                            scrollToBottom();
+                        } catch (e) {}
+                    }
+                }
+            }
+        } catch (err) {
+            contentEl.innerHTML = `<span class="text-danger">Connection error: ${err.message}</span>`;
+        } finally {
+            chatInput.disabled = false;
+            chatInput.focus();
+        }
+
+        if (fullResponse) {
+            chatHistory.push({ role: 'assistant', content: fullResponse });
+            saveHistory();
+        }
+    });
+</script>
+{% endblock %}
