@@ -44,10 +44,12 @@ def create_app(testing=False):
     from app.routes.auth import auth_bp
     from app.routes.cases import cases_bp
     from app.routes.admin import admin_bp
+    from app.routes.chat import chat_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(cases_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(chat_bp)
 
     @app.template_filter('local_fmt')
     def to_local_fmt(dt, fmt='%Y-%m-%d %H:%M'):
