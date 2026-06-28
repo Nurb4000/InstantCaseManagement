@@ -11,3 +11,4 @@ python-dateutil==2.9.0.post0
 WTForms==3.2.1
 gunicorn
 APScheduler>=3.10.0
+requests>=2.31.0
