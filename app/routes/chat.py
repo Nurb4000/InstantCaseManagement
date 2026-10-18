@@ -46,8 +46,12 @@ def chat_staff():
 
 
 def _proxy_chat(llama_url, system_prompt):
-    data = request.get_json(force=True)
-    messages = data.get('messages', [])
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {'error': 'Invalid or missing JSON body'}, 400
+    messages = data.get('messages')
+    if not isinstance(messages, list):
+        return {'error': "'messages' must be a list"}, 400
 
     full_messages = [{'role': 'system', 'content': system_prompt}] + messages
 

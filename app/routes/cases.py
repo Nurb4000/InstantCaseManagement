@@ -119,6 +119,9 @@ def dashboard():
             if sla_color:
                 sla_colors[case.id] = sla_color
                 sla_pcts[case.id] = get_sla_pct(case)
+        # Persist the OLA/SLA status computed above so the stored
+        # ola_status/sla_status columns stay in sync (mirrors all_cases()).
+        db.session.commit()
         return render_template('staff_dashboard.html',
                                assigned_cases=assigned_cases,
                                unassigned_cases=unassigned_cases,

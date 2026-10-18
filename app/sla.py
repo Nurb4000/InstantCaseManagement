@@ -1,10 +1,18 @@
+import os
 from datetime import datetime, timedelta
 from app import db
-from app.models import SLAEvent, OrgSetting, CaseState
+from app.models import SLAEvent, OrgSetting, CaseState, CaseType
 from app.email import notify_escalation
 
 YELLOW_PCT = 70
 ORANGE_PCT = 80
+
+# Safety valve (hours): an SLA pause that stays open longer than this is treated
+# as stuck (e.g. the process crashed while a case was paused) and is auto-resumed
+# so the SLA clock cannot freeze forever. Intentional customer-wait pauses are
+# shorter than this threshold by design. Configurable via the STUCK_SLA_PAUSE_HOURS
+# environment variable.
+STUCK_SLA_PAUSE_HOURS = float(os.environ.get('STUCK_SLA_PAUSE_HOURS', '720'))
 
 
 def get_sla_color(pct):
@@ -51,7 +59,7 @@ def get_org_business_hours_elapsed(start, end):
 def _get_case_type_sla_hours(case):
     if not case.case_type:
         return 0
-    ct = __import__('app.models', fromlist=['CaseType']).CaseType.query.filter_by(name=case.case_type).first()
+    ct = CaseType.query.filter_by(name=case.case_type).first()
     return ct.sla_hours if ct and ct.sla_hours else 0
 
 
@@ -110,6 +118,15 @@ def update_sla(case):
     if case.status == 'resolved':
         case.sla_status = None
         return None
+
+    # B4 recovery: an SLA pause left open past the safety valve (e.g. after a
+    # crash) would otherwise freeze the clock forever. Auto-resume it so SLA
+    # progress can continue. Intentional customer-wait pauses are shorter than
+    # STUCK_SLA_PAUSE_HOURS by design.
+    if case.sla_paused_at is not None:
+        paused_for = (datetime.utcnow() - case.sla_paused_at).total_seconds() / 3600.0
+        if paused_for > STUCK_SLA_PAUSE_HOURS:
+            resume_sla(case, reason=f'auto-resumed after stuck pause open {paused_for:.1f}h')
 
     pct = get_sla_pct(case)
     if pct is None:
@@ -189,15 +206,17 @@ def pause_sla(case):
     return True
 
 
-def resume_sla(case):
+def resume_sla(case, reason=None):
     if case.sla_started_at is None or case.sla_paused_at is None:
         return
     paused_seconds = (datetime.utcnow() - case.sla_paused_at).total_seconds()
     case.sla_total_paused_seconds = (case.sla_total_paused_seconds or 0) + int(paused_seconds)
     case.sla_paused_at = None
     db.session.commit()
-    _log_sla_event(case, 'sla_resumed',
-                   details=f'SLA resumed after {paused_seconds:.0f}s paused')
+    detail = f'SLA resumed after {paused_seconds:.0f}s paused'
+    if reason:
+        detail += f' ({reason})'
+    _log_sla_event(case, 'sla_resumed', details=detail)
     return True
 
 
