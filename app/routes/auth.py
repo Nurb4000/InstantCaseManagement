@@ -1,8 +1,10 @@
+import os
+
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
-from app import db, limiter, login_manager
+from app import db, limiter, login_manager, auth_security
 from app.models import User
 from app.forms import LoginForm, RegisterForm, ChangePasswordForm
 
@@ -19,18 +21,37 @@ def load_user(user_id):
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('cases.dashboard'))
+    # S4: slow down brute force before we even validate credentials.
+    ip = request.remote_addr or 'unknown'
+    if auth_security.ip_in_hard_cap(ip):
+        auth_security.record_login_attempt(None, ip, success=False)
+        flash('Too many failed attempts. Please try again later.', 'warning')
+        return render_template('login.html', form=LoginForm())
+    auth_security.apply_login_delay(ip)
+
     form = LoginForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(username=form.username.data).first()
+        username = form.username.data
+        user = User.query.filter_by(username=username).first()
         if user and user.check_password(form.password.data):
+            auth_security.record_login_attempt(username, ip, success=True)
             login_user(user)
             return redirect(url_for('cases.dashboard'))
+        auth_security.record_login_attempt(username, ip, success=False)
         flash('Invalid username or password')
     return render_template('login.html', form=form)
 
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
+    # S8: self-registration is opt-out. Admins can close registration (e.g. for
+    # admin-approved onboarding) by setting ALLOW_SELF_REGISTRATION=false.
+    allow_register = os.environ.get('ALLOW_SELF_REGISTRATION', 'true').lower() not in (
+        '0', 'false', 'no', 'off'
+    )
+    if not allow_register:
+        flash('Self-registration is currently disabled. Contact your administrator.')
+        return redirect(url_for('auth.login'))
     if current_user.is_authenticated:
         return redirect(url_for('cases.dashboard'))
     form = RegisterForm()

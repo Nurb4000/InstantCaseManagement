@@ -96,6 +96,21 @@ def create_app(testing=False):
         import sqlalchemy as sa
         inspector = sa.inspect(db.engine)
 
+        # S4: ensure the login-attempt audit table exists (fresh DBs get it via
+        # db.create_all(); existing DBs need an explicit CREATE).
+        tables = inspector.get_table_names()
+        if 'login_attempt' not in tables:
+            db.session.execute(
+                sa.text(
+                    'CREATE TABLE "login_attempt" ('
+                    'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+                    'username VARCHAR(80), '
+                    'ip VARCHAR(45) NOT NULL, '
+                    'success BOOLEAN NOT NULL DEFAULT 0, '
+                    'timestamp DATETIME)'
+                )
+            )
+
         # Group table migration
         group_columns = [c['name'] for c in inspector.get_columns('group')]
         if 'hidden' not in group_columns:

@@ -33,6 +33,24 @@ class User(UserMixin, db.Model):
         return f'<User {self.username}>'
 
 
+class LoginAttempt(db.Model):
+    """S4: audit trail for logins used to drive per-IP progressive delay.
+
+    Rows are bounded (see prune_login_attempts) to avoid unbounded growth.
+    """
+
+    __tablename__ = 'login_attempt'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=True)
+    ip = db.Column(db.String(45), nullable=False)
+    success = db.Column(db.Boolean, nullable=False, default=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f'<LoginAttempt {self.username or "?"} {self.ip} {self.success}>'
+
+
 class Group(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)

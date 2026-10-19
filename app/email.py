@@ -3,6 +3,7 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from app import db
 from app.models import OrgSetting, EmailLog
+from app import crypto
 
 
 def _get_smtp_config():
@@ -11,7 +12,8 @@ def _get_smtp_config():
         'server': org.smtp_server or 'localhost',
         'port': org.smtp_port or 587,
         'username': org.smtp_username or '',
-        'password': org.smtp_password or '',
+        # S6: decrypt at rest; falls back to plaintext for legacy/unset keys.
+        'password': crypto.decrypt_or_plain(org.smtp_password or ''),
         'from_email': org.smtp_from_email or 'noreply@example.com',
         'use_tls': org.smtp_use_tls if org.smtp_use_tls is not None else True,
     }

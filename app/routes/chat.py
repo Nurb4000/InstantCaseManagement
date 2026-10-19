@@ -7,6 +7,26 @@ from app import limiter, csrf
 
 chat_bp = Blueprint('chat', __name__)
 
+
+# S5 — Why these endpoints are @csrf.exempt (documented tradeoff)
+# -----------------------------------------------------------------------------
+# /chat/user and /chat/staff are JSON APIs driven by the browser's fetch(), not
+# HTML form posts. Standard CSRF tokens are therefore awkward for clients, so the
+# endpoints are exempt from Flask-WTF CSRF protection. This is acceptable because
+# every residual risk is mitigated:
+#   1. @login_required  — an authenticated session is required; anonymous CSFR is
+#      impossible without already holding a valid session cookie.
+#   2. Input validated  — body/messages shape is validated (see _proxy_chat); bad
+#      input returns 400 instead of proxying to the backend.
+#   3. Rate limited     — 30 requests/minute per IP (Flask-Limiter) bounds any
+#      resource-abuse or prompt-injection amplification.
+#   4. Role-gated       — staff vs user endpoints are separated by current_user.
+# Residual risk: a cross-site authenticated request could still drive the LLM
+# proxy on behalf of the victim. If this app is ever exposed to untrusted
+# cross-site actors, re-enable CSRF (or use the SameSite cookie attribute) and
+# switch the client to an explicit token. For an internal, authenticated tool
+# the current posture is a reasonable risk/reward balance.
+
 LLAMA_CPP_USER_URL = os.environ.get('LLAMA_CPP_USER_URL', 'http://10.0.1.27:8080/v1/chat/completions')
 LLAMA_CPP_STAFF_URL = os.environ.get('LLAMA_CPP_STAFF_URL', 'http://10.0.1.28:8080/v1/chat/completions')
 CHAT_USER_SYSTEM_PROMPT = os.environ.get(

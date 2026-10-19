@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
 
-from app import db
+from app import db, crypto
 from app.models import User, Group, Case, CaseState, CaseType, CaseCategory, OrgSetting
 from app.forms import GroupForm, UserGroupForm, CaseStateForm, AdminPasswordResetForm, CaseTypeForm, CaseCategoryForm, AdminEditUserForm, AdminCreateUserForm, OrgSettingsForm
 
@@ -570,7 +570,8 @@ def org_settings():
                 pass
         org.smtp_username = form.smtp_username.data or ''
         if form.smtp_password.data:
-            org.smtp_password = form.smtp_password.data
+            # S6: encrypt before storing at rest.
+            org.smtp_password = crypto.encrypt_plaintext(form.smtp_password.data)
         org.smtp_from_email = form.smtp_from_email.data or ''
         org.smtp_use_tls = form.smtp_use_tls.data
         db.session.commit()
