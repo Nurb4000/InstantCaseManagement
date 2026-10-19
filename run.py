@@ -5,5 +5,7 @@ app = create_app()
 
 if __name__ == '__main__':
     host = os.environ.get('FLASK_RUN_HOST', '0.0.0.0')
-    port = int(os.environ.get('FLASK_RUN_PORT', 5000))
-    app.run(host=host, port=port, debug=True)
+    port = int(os.environ.get('FLASK_RUN_PORT', '5000'))
+    # S7: debug is off by default. Enable explicitly per-route via FLASK_DEBUG=1.
+    debug = os.environ.get('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes')
+    app.run(host=host, port=port, debug=debug)

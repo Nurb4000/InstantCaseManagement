@@ -3,15 +3,45 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, TextAreaField, SelectField, BooleanField, SelectMultipleField, FloatField
 from wtforms.validators import DataRequired, Email, Length, ValidationError, Optional
 
+# Obvious/common passwords that must never be accepted, regardless of complexity.
+WEAK_PASSWORDS = {
+    'changeme', 'changeme123', 'password', 'passw0rd', 'admin', 'administrator',
+    '123456', '12345678', '123456789', '1234567890', 'qwerty', 'abc123',
+    'letmein', 'welcome', 'monkey', 'dragon', 'iloveyou', 'sunshine',
+    'princess', 'football', 'baseball', 'master', 'shadow', 'trustno1',
+}
+
+MIN_PASSWORD_LENGTH = 12
+
+
+def _check_password_strength(password):
+    """Return a list of human-readable problems (empty list means the password is strong)."""
+    problems = []
+    pw = password or ''
+    if len(pw) < MIN_PASSWORD_LENGTH:
+        problems.append('Password must be at least 12 characters long.')
+    if not re.search(r'[a-z]', pw):
+        problems.append('Password must contain a lowercase letter.')
+    if not re.search(r'[A-Z]', pw):
+        problems.append('Password must contain an uppercase letter.')
+    if not re.search(r'[0-9]', pw):
+        problems.append('Password must contain a number.')
+    if not re.search(r'[^A-Za-z0-9]', pw):
+        problems.append('Password must contain a special character.')
+    if pw.lower() in WEAK_PASSWORDS:
+        problems.append('This password is too common and cannot be used.')
+    return problems
+
+
+def password_is_strong(password):
+    """Programmatic strength check (used by non-form code paths, e.g. admin bootstrap)."""
+    return not _check_password_strength(password)
+
 
 def password_complexity(form, field):
-    password = field.data
-    if len(password) < 8:
-        raise ValidationError('Password must be at least 8 characters long.')
-    if not re.search(r'[A-Za-z]', password):
-        raise ValidationError('Password must contain at least one letter.')
-    if not re.search(r'[0-9]', password):
-        raise ValidationError('Password must contain at least one number.')
+    problems = _check_password_strength(field.data)
+    if problems:
+        raise ValidationError(problems[0])
 
 
 class LoginForm(FlaskForm):

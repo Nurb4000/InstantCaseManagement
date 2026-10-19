@@ -17,11 +17,39 @@ limiter = Limiter(key_func=get_remote_address)
 csrf = CSRFProtect()
 
 
+# Placeholder / well-known-weak values that must never sign sessions in production.
+_WEAK_SECRETS = {
+    '', 'secret', 'changeme', 'changeme123', 'dev', 'development', 'test',
+    'random', 'your-secret-key', 'replace-me', 'generate-a-random-secret-key-here',
+    'please-change-me', 'change-me',
+}
+
+
+def _is_weak_secret(key):
+    if not key or len(key) < 32:
+        return True
+    return key.lower() in _WEAK_SECRETS
+
+
 def create_app(testing=False):
     app = Flask(__name__, template_folder='../templates')
-    app.config['SECRET_KEY'] = os.environ.get(
-        'SECRET_KEY', os.urandom(64).hex()
-    )
+    # S1: fail closed if SECRET_KEY is missing or weak outside of tests.
+    # Tests intentionally use short keys, so enforcement is skipped there.
+    secret_key = os.environ.get('SECRET_KEY')
+    if testing:
+        app.config['SECRET_KEY'] = secret_key or os.urandom(64).hex()
+    elif _is_weak_secret(secret_key):
+        if os.environ.get('SECRET_KEY_ALLOW_WEAK'):
+            app.config['SECRET_KEY'] = os.urandom(64).hex()
+        else:
+            raise RuntimeError(
+                "SECRET_KEY is missing or weak. Export a strong SECRET_KEY "
+                "(>= 32 random characters) before running outside of tests. "
+                "Set SECRET_KEY_ALLOW_WEAK=1 to allow a random per-process key "
+                "(not recommended: it invalidates sessions on restart)."
+            )
+    else:
+        app.config['SECRET_KEY'] = secret_key
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
         'DATABASE_URL', 'sqlite:///instant_call_center.db'
     )
@@ -160,13 +188,33 @@ def create_app(testing=False):
             else:
                 triage_group = Group.query.filter_by(name='Triage').first()
 
-            if not User.query.filter_by(username='admin').first():
-                admin_user = User(username='admin', email='admin@example.com',
-                                  is_staff=True, is_admin=True)
-                admin_user.set_password(os.environ.get('ADMIN_PASSWORD', 'changeme123'))
+            from app.forms import password_is_strong
+            admin_password = os.environ.get('ADMIN_PASSWORD', '')
+            if User.query.filter_by(username='admin').first():
+                pass  # admin already exists; leave it alone
+            elif password_is_strong(admin_password):
+                # Operator supplied a strong password; create the admin with it.
+                admin_user = User(
+                    username='admin', email='admin@example.com',
+                    is_staff=True, is_admin=True,
+                )
+                admin_user.set_password(admin_password)
                 admin_user.groups.append(triage_group)
                 db.session.add(admin_user)
                 db.session.commit()
+                app.logger.info("Admin account 'admin' created.")
+            else:
+                # S2: never bootstrap the admin with a weak/default password.
+                # Refuse to create the account and fail loudly so the operator
+                # knows to set a strong ADMIN_PASSWORD before first use.
+                app.logger.error(
+                    "ADMIN_PASSWORD is missing or too weak (got %r). Refusing to "
+                    "create the admin account with a default password. Set a strong "
+                    "ADMIN_PASSWORD (>=12 chars, upper+lower+number+special, not a "
+                    "common password) in your environment and restart. Common "
+                    "passwords such as 'changeme123' are rejected.",
+                    admin_password or '(unset)',
+                )
 
     if not testing:
         from apscheduler.schedulers.background import BackgroundScheduler

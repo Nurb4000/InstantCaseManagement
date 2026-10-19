@@ -32,7 +32,7 @@ def client(app):
 
 
 def _create_user(client, app, username, *, is_staff=False, is_admin=False,
-                 password='password1', group=None):
+                 password='Str0ng!Passw0rd', group=None):
     """Register + login a user via the real endpoints."""
     from app.models import User
     client.post('/register', data={

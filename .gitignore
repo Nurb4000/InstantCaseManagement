@@ -1,0 +1,43 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/bin/
+env/lib/
+
+# Environment / secrets — NEVER commit real config
+.env
+.env.local
+env
+env.example
+*.local
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+instance/*.db
+instance/*.sqlite
+
+# Uploaded files (keep the directory, ignore contents)
+uploads/*
+!uploads/.gitkeep
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / tool backups
+*.bak
+*.swp
+*~
