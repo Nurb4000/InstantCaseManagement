@@ -31,6 +31,106 @@ def _is_weak_secret(key):
     return key.lower() in _WEAK_SECRETS
 
 
+def _is_flask_db_command():
+    """True when running under ``flask db ...`` (init/migrate/upgrade/...)."""
+    import sys
+    return 'db' in sys.argv[1:]
+
+
+def _initialize_database(app):
+    """Q2: apply schema via Flask-Migrate instead of hand-rolled ALTER TABLE.
+
+    - Fresh DB: ``upgrade()`` runs the initial migration and builds every table.
+    - Legacy DB (built by the old create_all/ALTER path, no alembic history):
+      ``upgrade()`` hits "table already exists"; we align alembic history to
+      ``head`` so future migrations apply cleanly on the next start.
+    """
+    import sqlalchemy as sa
+    from sqlalchemy.exc import OperationalError
+    from flask_migrate import upgrade, stamp
+
+    with app.app_context():
+        inspector = sa.inspect(db.engine)
+        has_version_table = 'alembic_version' in inspector.get_table_names()
+        try:
+            upgrade()
+        except OperationalError as exc:
+            if not has_version_table and 'exists' in str(exc).lower():
+                # Legacy DB: tables already match current schema; align alembic
+                # history to head so future migrations apply on the next start.
+                stamp(revision='head')
+            else:
+                raise
+
+
+def _seed_initial_data(app):
+    from app.models import OrgSetting, CaseState, CaseType, CaseCategory, Group, User
+    from app.forms import password_is_strong
+
+    # Ensure OrgSetting exists
+    if not OrgSetting.query.get(1):
+        db.session.add(OrgSetting(id=1))
+        db.session.commit()
+
+    default_states = [
+        ('New', 0),
+        ('In Progress', 1),
+        ('On Hold', 2),
+        ('Waiting on Customer', 3),
+        ('Waiting on Vendor', 4),
+        ('Waiting on Resolution Approval', 5),
+    ]
+    for name, order in default_states:
+        if not CaseState.query.filter_by(name=name).first():
+            db.session.add(CaseState(name=name, sort_order=order))
+
+    default_types = ['Technical', 'Billing', 'Account', 'Feature Request', 'Other']
+    for i, name in enumerate(default_types):
+        if not CaseType.query.filter_by(name=name).first():
+            db.session.add(CaseType(name=name, sort_order=i))
+
+    default_categories = ['Hardware', 'Software', 'Network', 'Security', 'Performance', 'Other']
+    for i, name in enumerate(default_categories):
+        if not CaseCategory.query.filter_by(name=name).first():
+            db.session.add(CaseCategory(name=name, sort_order=i))
+
+    db.session.commit()
+
+    if os.environ.get('ADMIN_CREATE', '').lower() in ('1', 'true', 'yes'):
+        if not Group.query.filter_by(name='Triage').first():
+            triage_group = Group(name='Triage', description='Initial case handling group')
+            db.session.add(triage_group)
+            db.session.commit()
+        else:
+            triage_group = Group.query.filter_by(name='Triage').first()
+
+        if User.query.filter_by(username='admin').first():
+            pass  # admin already exists; leave it alone
+        elif password_is_strong(os.environ.get('ADMIN_PASSWORD', '')):
+            # Operator supplied a strong password; create the admin with it.
+            admin_user = User(
+                username='admin', email='admin@example.com',
+                is_staff=True, is_admin=True,
+            )
+            admin_user.set_password(os.environ.get('ADMIN_PASSWORD'))
+            admin_user.groups.append(triage_group)
+            db.session.add(admin_user)
+            db.session.commit()
+            app.logger.info("Admin account 'admin' created.")
+        else:
+            # S2: never bootstrap the admin with a weak/default password.
+            # Refuse to create the account and fail loudly so the operator
+            # knows to set a strong ADMIN_PASSWORD before first use.
+            app.logger.error(
+                "ADMIN_PASSWORD is missing or too weak (got %r). Refusing to "
+                "create the admin account with a default password. Set a strong "
+                "ADMIN_PASSWORD (>=12 chars, upper+lower+number+special, not a "
+                "common password) in your environment and restart. Common "
+                "passwords such as 'changeme123' are rejected.",
+                os.environ.get('ADMIN_PASSWORD') or '(unset)',
+            )
+
+
 def create_app(testing=False):
     app = Flask(__name__, template_folder='../templates')
     # S1: fail closed if SECRET_KEY is missing or weak outside of tests.
@@ -88,148 +188,14 @@ def create_app(testing=False):
         local_dt = utc_dt.astimezone()
         return local_dt.strftime(fmt)
 
-    with app.app_context():
-        from app.models import Group, User, CaseState, CaseType, CaseCategory, Case, OLAEvent
-        db.create_all()
-
-        # Migrate existing database: add new columns if missing
-        import sqlalchemy as sa
-        inspector = sa.inspect(db.engine)
-
-        # S4: ensure the login-attempt audit table exists (fresh DBs get it via
-        # db.create_all(); existing DBs need an explicit CREATE).
-        tables = inspector.get_table_names()
-        if 'login_attempt' not in tables:
-            db.session.execute(
-                sa.text(
-                    'CREATE TABLE "login_attempt" ('
-                    'id INTEGER PRIMARY KEY AUTOINCREMENT, '
-                    'username VARCHAR(80), '
-                    'ip VARCHAR(45) NOT NULL, '
-                    'success BOOLEAN NOT NULL DEFAULT 0, '
-                    'timestamp DATETIME)'
-                )
-            )
-
-        # Group table migration
-        group_columns = [c['name'] for c in inspector.get_columns('group')]
-        if 'hidden' not in group_columns:
-            db.session.execute(sa.text('ALTER TABLE "group" ADD COLUMN hidden BOOLEAN DEFAULT 0'))
-        if 'business_hours_start' not in group_columns:
-            db.session.execute(sa.text('ALTER TABLE "group" ADD COLUMN business_hours_start INTEGER DEFAULT 6'))
-        if 'business_hours_end' not in group_columns:
-            db.session.execute(sa.text('ALTER TABLE "group" ADD COLUMN business_hours_end INTEGER DEFAULT 18'))
-        if 'business_hours_days' not in group_columns:
-            db.session.execute(sa.text('ALTER TABLE "group" ADD COLUMN business_hours_days VARCHAR(100) DEFAULT "Mon,Tue,Wed,Thu,Fri"'))
-        if 'manager_id' not in group_columns:
-            db.session.execute(sa.text('ALTER TABLE "group" ADD COLUMN manager_id INTEGER REFERENCES user(id)'))
-        if 'ola_hours' not in group_columns:
-            db.session.execute(sa.text('ALTER TABLE "group" ADD COLUMN ola_hours FLOAT DEFAULT 2.0'))
-
-        # Case table migration
-        case_columns = [c['name'] for c in inspector.get_columns('case')]
-        if 'ola_started_at' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN ola_started_at DATETIME'))
-        if 'ola_group_id' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN ola_group_id INTEGER REFERENCES "group"(id)'))
-        if 'sla_started_at' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN sla_started_at DATETIME'))
-        if 'sla_paused_at' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN sla_paused_at DATETIME'))
-        if 'sla_total_paused_seconds' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN sla_total_paused_seconds INTEGER DEFAULT 0'))
-        if 'ola_status' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN ola_status VARCHAR(20)'))
-        if 'sla_status' not in case_columns:
-            db.session.execute(sa.text('ALTER TABLE "case" ADD COLUMN sla_status VARCHAR(20)'))
-
-        # CaseType table migration
-        ct_columns = [c['name'] for c in inspector.get_columns('case_type')]
-        if 'sla_hours' not in ct_columns:
-            db.session.execute(sa.text('ALTER TABLE "case_type" ADD COLUMN sla_hours FLOAT DEFAULT 0'))
-
-        # OrgSetting table migration
-        os_columns = [c['name'] for c in inspector.get_columns('org_setting')]
-        if 'smtp_server' not in os_columns:
-            db.session.execute(sa.text('ALTER TABLE "org_setting" ADD COLUMN smtp_server VARCHAR(200) DEFAULT ""'))
-        if 'smtp_port' not in os_columns:
-            db.session.execute(sa.text('ALTER TABLE "org_setting" ADD COLUMN smtp_port INTEGER DEFAULT 587'))
-        if 'smtp_username' not in os_columns:
-            db.session.execute(sa.text('ALTER TABLE "org_setting" ADD COLUMN smtp_username VARCHAR(200) DEFAULT ""'))
-        if 'smtp_password' not in os_columns:
-            db.session.execute(sa.text('ALTER TABLE "org_setting" ADD COLUMN smtp_password VARCHAR(200) DEFAULT ""'))
-        if 'smtp_from_email' not in os_columns:
-            db.session.execute(sa.text('ALTER TABLE "org_setting" ADD COLUMN smtp_from_email VARCHAR(200) DEFAULT ""'))
-        if 'smtp_use_tls' not in os_columns:
-            db.session.execute(sa.text('ALTER TABLE "org_setting" ADD COLUMN smtp_use_tls BOOLEAN DEFAULT 1'))
-
-        db.session.commit()
-
-        # Ensure OrgSetting exists
-        from app.models import OrgSetting
-        if not OrgSetting.query.get(1):
-            db.session.add(OrgSetting(id=1))
-            db.session.commit()
-
-        default_states = [
-            ('New', 0),
-            ('In Progress', 1),
-            ('On Hold', 2),
-            ('Waiting on Customer', 3),
-            ('Waiting on Vendor', 4),
-            ('Waiting on Resolution Approval', 5),
-        ]
-        for name, order in default_states:
-            if not CaseState.query.filter_by(name=name).first():
-                db.session.add(CaseState(name=name, sort_order=order))
-
-        default_types = ['Technical', 'Billing', 'Account', 'Feature Request', 'Other']
-        for i, name in enumerate(default_types):
-            if not CaseType.query.filter_by(name=name).first():
-                db.session.add(CaseType(name=name, sort_order=i))
-
-        default_categories = ['Hardware', 'Software', 'Network', 'Security', 'Performance', 'Other']
-        for i, name in enumerate(default_categories):
-            if not CaseCategory.query.filter_by(name=name).first():
-                db.session.add(CaseCategory(name=name, sort_order=i))
-
-        db.session.commit()
-
-        if os.environ.get('ADMIN_CREATE', '').lower() in ('1', 'true', 'yes'):
-            if not Group.query.filter_by(name='Triage').first():
-                triage_group = Group(name='Triage', description='Initial case handling group')
-                db.session.add(triage_group)
-                db.session.commit()
-            else:
-                triage_group = Group.query.filter_by(name='Triage').first()
-
-            from app.forms import password_is_strong
-            admin_password = os.environ.get('ADMIN_PASSWORD', '')
-            if User.query.filter_by(username='admin').first():
-                pass  # admin already exists; leave it alone
-            elif password_is_strong(admin_password):
-                # Operator supplied a strong password; create the admin with it.
-                admin_user = User(
-                    username='admin', email='admin@example.com',
-                    is_staff=True, is_admin=True,
-                )
-                admin_user.set_password(admin_password)
-                admin_user.groups.append(triage_group)
-                db.session.add(admin_user)
-                db.session.commit()
-                app.logger.info("Admin account 'admin' created.")
-            else:
-                # S2: never bootstrap the admin with a weak/default password.
-                # Refuse to create the account and fail loudly so the operator
-                # knows to set a strong ADMIN_PASSWORD before first use.
-                app.logger.error(
-                    "ADMIN_PASSWORD is missing or too weak (got %r). Refusing to "
-                    "create the admin account with a default password. Set a strong "
-                    "ADMIN_PASSWORD (>=12 chars, upper+lower+number+special, not a "
-                    "common password) in your environment and restart. Common "
-                    "passwords such as 'changeme123' are rejected.",
-                    admin_password or '(unset)',
-                )
+    # Q2: schema (migrations) and seed data are applied on the serve path only.
+    # We skip both during `flask db ...` CLI invocations so the command itself
+    # owns migration execution and we avoid nested upgrade()/stamp()/seed
+    # conflicts against a live database.
+    if not _is_flask_db_command():
+        _initialize_database(app)
+        with app.app_context():
+            _seed_initial_data(app)
 
     if not testing:
         from apscheduler.schedulers.background import BackgroundScheduler

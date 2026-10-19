@@ -17,8 +17,8 @@ def app(tmp_path):
     os.environ['DATABASE_URL'] = f'sqlite:///{db_path}'
     application = create_app(testing=True)
     application.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-    with application.app_context():
-        sql_db.create_all()
+    # NOTE: schema is built by Flask-Migrate inside create_app() (Q2). We do not
+    # call db.create_all() here so the suite exercises the real migration path.
     yield application
     try:
         os.remove(str(db_path))

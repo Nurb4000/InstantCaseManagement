@@ -150,3 +150,44 @@ def test_registration_enabled_by_default(app, client, monkeypatch):
     monkeypatch.delenv('ALLOW_SELF_REGISTRATION', raising=False)
     r = client.get('/register')
     assert r.status_code == 200  # form is served
+
+
+# ---------------------------------------------------------------------------
+# Q2 — Flask-Migrate schema bootstrap
+# ---------------------------------------------------------------------------
+
+INITIAL_REVISION = 'f3f809742ad3'
+
+
+def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):
+    """A brand-new DB is built entirely by the initial migration (no create_all)."""
+    from app import create_app, db
+    from sqlalchemy import inspect, text
+    monkeypatch.setenv('DATABASE_URL', f'sqlite:///{tmp_path}/fresh.db')
+    monkeypatch.setenv('SECRET_KEY', 'b' * 40)
+    monkeypatch.setenv('ADMIN_CREATE', 'false')
+    app = create_app(testing=True)
+    with app.app_context():
+        tables = inspect(db.engine).get_table_names()
+        assert 'alembic_version' in tables
+        version = db.session.execute(
+            text('select version_num from alembic_version')
+        ).scalar()
+        assert version == INITIAL_REVISION
+        for name in ('user', 'case', 'group', 'org_setting', 'login_attempt', 'attachment'):
+            assert name in tables, f'missing table {name}'
+
+
+def test_initialize_database_stamps_legacy_db(app):
+    """A pre-migration DB (tables exist, no alembic history) is aligned to head."""
+    from app import _initialize_database, db
+    from sqlalchemy import inspect, text
+    with app.app_context():
+        db.session.execute(text('DROP TABLE alembic_version'))
+        db.session.commit()
+        assert 'alembic_version' not in inspect(db.engine).get_table_names()
+    _initialize_database(app)
+    with app.app_context():
+        assert db.session.execute(
+            text('select version_num from alembic_version')
+        ).scalar() == INITIAL_REVISION
