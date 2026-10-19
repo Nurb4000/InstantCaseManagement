@@ -173,11 +173,13 @@ def create_app(testing=False):
     from app.routes.cases import cases_bp
     from app.routes.admin import admin_bp
     from app.routes.chat import chat_bp
+    from app.routes.reports import reports_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(cases_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(chat_bp)
+    app.register_blueprint(reports_bp)
 
     @app.template_filter('local_fmt')
     def to_local_fmt(dt, fmt='%Y-%m-%d %H:%M'):
@@ -187,6 +189,11 @@ def create_app(testing=False):
         utc_dt = dt.replace(tzinfo=timezone.utc)
         local_dt = utc_dt.astimezone()
         return local_dt.strftime(fmt)
+
+    from app.routes.reports import _format_hours
+    @app.template_filter('format_hours')
+    def to_format_hours(hours):
+        return _format_hours(hours)
 
     # Q2: schema (migrations) and seed data are applied on the serve path only.
     # We skip both during `flask db ...` CLI invocations so the command itself

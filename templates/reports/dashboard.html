@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-2">
+        <div class="sidebar">
+            <a href="{{ url_for('cases.dashboard') }}">My Assignments</a>
+            <a href="{{ url_for('reports.dashboard') }}" class="active">Reports</a>
+            <a href="{{ url_for('cases.submit_case') }}">Submit Case</a>
+            <a href="{{ url_for('cases.all_cases') }}">All Cases</a>
+        </div>
+    </div>
+    <div class="col-md-10">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h2 class="mb-0">Reports</h2>
+            <form method="GET" class="d-flex gap-2 align-items-center flex-wrap">
+                <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ date_from or '' }}" title="From date">
+                <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ date_to or '' }}" title="To date">
+                <select name="granularity" class="form-select form-select-sm" style="width: auto;">
+                    <option value="daily" {{ 'selected' if granularity == 'daily' }}>Daily</option>
+                    <option value="weekly" {{ 'selected' if granularity == 'weekly' }}>Weekly</option>
+                    <option value="monthly" {{ 'selected' if granularity == 'monthly' }}>Monthly</option>
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-search"></i> Filter</button>
+                <a href="{{ url_for('reports.export', date_from=date_from, date_to=date_to, granularity=granularity) }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download"></i> Export CSV</a>
+                {% if date_from or date_to or granularity != 'monthly' %}<a href="{{ url_for('reports.dashboard') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+            </form>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Cases</h5>
+                        <p class="card-text display-6">{{ data.total }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Open</h5>
+                        <p class="card-text display-6">{{ data.open }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Resolved</h5>
+                        <p class="card-text display-6">{{ data.resolved }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title text-muted">SLA Compliance</h6>
+                        <p class="card-text display-6">
+                            {% if data.compliance_rate is not none %}{{ '%.0f'|format(data.compliance_rate) }}%{% else %}N/A{% endif %}
+                        </p>
+                        <p class="text-muted mb-0">{{ data.compliant_ok }} compliant / {{ data.compliant_total }} with target · {{ data.breached_count }} breached</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title text-muted">Avg First Response</h6>
+                        <p class="card-text display-6">{% if data.avg_response is not none %}{{ data.avg_response | format_hours }}{% else %}N/A{% endif %}</p>
+                        <p class="text-muted mb-0">from creation to first comment</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title text-muted">Avg Resolution Time</h6>
+                        <p class="card-text display-6">{% if data.avg_resolve is not none %}{{ data.avg_resolve | format_hours }}{% else %}N/A{% endif %}</p>
+                        <p class="text-muted mb-0">creation to resolution</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title text-muted">Period Granularity</h6>
+                        <p class="card-text display-6" style="text-transform: capitalize">{{ granularity }}</p>
+                        <p class="text-muted mb-0">{{ volume|length }} period(s)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-6 mb-4">
+                <div class="card">
+                    <div class="card-header">Case Volume by Period</div>
+                    <div class="card-body">
+                        {% if volume %}
+                        <div class="mb-2 text-center text-muted">Volume max: {{ (volume | map(attribute='count') | list | max) }}</div>
+                        {% for row in volume %}
+                        <div class="d-flex align-items-center mb-1">
+                            <span style="width: 90px" class="text-muted nowrap">{{ row.label }}</span>
+                            <div class="mx-2" style="width: calc(100% - 130px); background:#3c4043; border-radius:4px; height:22px;">
+                                <div style="width: {{ row.pct }}%; background: var(--primary-color); height:100%; border-radius:4px;"></div>
+                            </div>
+                            <span style="width: 30px">{{ row.count }}</span>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <p class="text-muted text-center py-3">No cases in range</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6 mb-4">
+                <div class="card">
+                    <div class="card-header">By Status</div>
+                    <div class="card-body">
+                        {% if by_status %}
+                        <table class="table table-dark table-hover">
+                            <tbody>
+                            {% for row in by_status %}
+                            <tr>
+                                <td>{{ row.label }}</td>
+                                <td style="width:40%; background:#3c4043; border-radius:4px;">
+                                    <div style="width: {{ row.pct }}%; background:#ff9800; height:16px; border-radius:4px;"></div>
+                                </td>
+                                <td class="text-right">{{ row.count }}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="text-muted text-center py-3">No data</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-6 mb-4">
+                <div class="card">
+                    <div class="card-header">By Group</div>
+                    <div class="card-body">
+                        {% if by_group %}
+                        <table class="table table-dark table-hover sortable">
+                            <thead><tr><th>Group</th><th>Cases</th></tr></thead>
+                            <tbody>
+                            {% for row in by_group %}
+                            <tr><td>{{ row.label }}</td><td class="text-right">{{ row.count }}</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="text-muted text-center py-3">No data</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6 mb-4">
+                <div class="card">
+                    <div class="card-header">By Type</div>
+                    <div class="card-body">
+                        {% if by_type %}
+                        <table class="table table-dark table-hover sortable">
+                            <thead><tr><th>Type</th><th>Cases</th></tr></thead>
+                            <tbody>
+                            {% for row in by_type %}
+                            <tr><td>{{ row.label }}</td><td class="text-right">{{ row.count }}</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="text-muted text-center py-3">No data</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">Resolved Cases by Agent</div>
+            <div class="card-body">
+                {% if by_agent %}
+                <table class="table table-dark table-hover sortable">
+                    <thead><tr><th>Agent</th><th>Resolved</th></tr></thead>
+                    <tbody>
+                    {% for row in by_agent %}
+                    <tr><td>{{ row.label }}</td><td class="text-right">{{ row.count }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted text-center py-3">No resolved-and-assigned cases</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
