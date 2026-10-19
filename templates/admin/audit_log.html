@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <h2>Audit Log</h2>
+    <a href="{{ url_for('admin.export_audit_log', action=action_filter) }}" class="btn btn-outline-secondary">
+        <i class="fas fa-file-csv"></i> Export CSV
+    </a>
+</div>
+
+<form method="GET" class="row g-2 mb-4">
+    <div class="col-md-4">
+        <label class="form-label text-muted small mb-1">Action</label>
+        <select name="action" class="form-select">
+            <option value="">All actions</option>
+            {% for a in action_choices %}
+                <option value="{{ a }}" {{ 'selected' if a == action_filter }}>{{ a }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label text-muted small mb-1">Target type</label>
+        <input type="text" name="target" class="form-control" value="{{ target_filter or '' }}" placeholder="e.g. User">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label text-muted small mb-1">Actor</label>
+        <input type="text" name="actor" class="form-control" value="{{ actor_filter or '' }}" placeholder="username">
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">Filter</button>
+    </div>
+</div>
+
+{% if logs %}
+    <div class="table-responsive">
+        <table class="table table-dark table-hover">
+            <thead>
+                <tr>
+                    <th>Timestamp (UTC)</th>
+                    <th>Action</th>
+                    <th>Actor</th>
+                    <th>Target</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td class="nowrap">{{ log.timestamp | local_fmt }}</td>
+                    <td><span class="badge bg-secondary">{{ log.action }}</span></td>
+                    <td>{{ log.actor_name or 'system' }}</td>
+                    <td>{{ log.target_type or '' }}{% if log.target_id %} #{{ log.target_id }}{% endif %}</td>
+                    <td class="text-muted">{{ log.details or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted small">Showing {{ logs|length }} most recent entries.</p>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-history fa-3x mb-3 text-muted"></i>
+        <h4>No audit entries found</h4>
+        <p class="text-muted">Administrative actions will be recorded here as they happen.</p>
+    </div>
+{% endif %}
+{% endblock %}

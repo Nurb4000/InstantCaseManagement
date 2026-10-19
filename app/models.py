@@ -51,6 +51,32 @@ class LoginAttempt(db.Model):
         return f'<LoginAttempt {self.username or "?"} {self.ip} {self.success}>'
 
 
+class AuditLog(db.Model):
+    """F2: immutable audit trail for administrative actions.
+
+    One row per admin action (user/group/state/type/category/settings changes).
+    The actor's username is snapshotted so the row survives deletion of the
+    user, and target_id is stored so the log remains meaningful even if the
+    affected record is later removed.
+    """
+
+    __tablename__ = 'audit_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(50), nullable=False, index=True)
+    target_type = db.Column(db.String(50), nullable=True)
+    target_id = db.Column(db.Integer, nullable=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    actor_name = db.Column(db.String(80), nullable=True)
+    details = db.Column(db.Text, nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    actor = db.relationship('User', foreign_keys=[actor_user_id])
+
+    def __repr__(self):
+        return f'<AuditLog {self.action} by {self.actor_name or "?"}>'
+
+
 class Group(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)

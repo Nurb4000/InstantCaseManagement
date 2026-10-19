@@ -156,11 +156,11 @@ def test_registration_enabled_by_default(app, client, monkeypatch):
 # Q2 — Flask-Migrate schema bootstrap
 # ---------------------------------------------------------------------------
 
-INITIAL_REVISION = 'f3f809742ad3'
+HEAD_REVISION = 'bfdd761df1c5'  # add audit_log table (F2); keep in sync with migrations/versions/
 
 
 def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):
-    """A brand-new DB is built entirely by the initial migration (no create_all)."""
+    """A brand-new DB is built entirely by the migrations (no create_all)."""
     from app import create_app, db
     from sqlalchemy import inspect, text
     monkeypatch.setenv('DATABASE_URL', f'sqlite:///{tmp_path}/fresh.db')
@@ -170,10 +170,11 @@ def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):
     with app.app_context():
         tables = inspect(db.engine).get_table_names()
         assert 'alembic_version' in tables
+        assert 'audit_log' in tables
         version = db.session.execute(
             text('select version_num from alembic_version')
         ).scalar()
-        assert version == INITIAL_REVISION
+        assert version == HEAD_REVISION
         for name in ('user', 'case', 'group', 'org_setting', 'login_attempt', 'attachment'):
             assert name in tables, f'missing table {name}'
 
@@ -190,4 +191,4 @@ def test_initialize_database_stamps_legacy_db(app):
     with app.app_context():
         assert db.session.execute(
             text('select version_num from alembic_version')
-        ).scalar() == INITIAL_REVISION
+        ).scalar() == HEAD_REVISION

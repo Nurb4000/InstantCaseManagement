@@ -1,7 +1,11 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from datetime import datetime
+from io import StringIO
+
+from flask import Blueprint, render_template, redirect, url_for, flash, request, Response
 from flask_login import login_required, current_user
 
 from app import db, crypto
+from app.audit import log_audit
 from app.models import User, Group, Case, CaseState, CaseType, CaseCategory, OrgSetting
 from app.forms import GroupForm, UserGroupForm, CaseStateForm, AdminPasswordResetForm, CaseTypeForm, CaseCategoryForm, AdminEditUserForm, AdminCreateUserForm, OrgSettingsForm
 
@@ -54,6 +58,8 @@ def create_group():
         )
         db.session.add(group)
         db.session.commit()
+        log_audit('group_create', target_type='Group', target_id=group.id,
+                  details=f'name="{group.name}"')
         flash(f'Group "{group.name}" created')
         return redirect(url_for('admin.list_groups'))
     return render_template('admin/group_form.html', form=form, title='Create Group')
@@ -86,6 +92,8 @@ def edit_group(group_id):
         group.manager_id = form.manager_id.data if form.manager_id.data else None
         group.ola_hours = form.ola_hours.data if form.ola_hours.data else 2.0
         db.session.commit()
+        log_audit('group_edit', target_type='Group', target_id=group.id,
+                  details=f'name="{group.name}"')
         flash('Group updated')
         return redirect(url_for('admin.list_groups'))
     return render_template('admin/group_form.html', form=form, title='Edit Group', group=group)
@@ -99,6 +107,8 @@ def delete_group(group_id):
     if group.users:
         flash('Cannot delete a group that has members. Remove all members first.')
         return redirect(url_for('admin.view_group', group_id=group_id))
+    log_audit('group_delete', target_type='Group', target_id=group.id,
+              details=f'name="{group.name}"')
     db.session.delete(group)
     db.session.commit()
     flash('Group deleted')
@@ -133,6 +143,8 @@ def add_user_to_group(group_id):
         if user and user not in group.users:
             group.users.append(user)
             db.session.commit()
+            log_audit('group_add_user', target_type='Group', target_id=group.id,
+                      details=f'user="{user.username}"')
             flash(f'Added {user.username} to {group.name}')
     return redirect(url_for('admin.view_group', group_id=group_id))
 
@@ -146,6 +158,8 @@ def remove_user_from_group(group_id, user_id):
     if user in group.users:
         group.users.remove(user)
         db.session.commit()
+        log_audit('group_remove_user', target_type='Group', target_id=group.id,
+                  details=f'user="{user.username}"')
         flash(f'Removed {user.username} from {group.name}')
     return redirect(url_for('admin.view_group', group_id=group_id))
 
@@ -158,6 +172,8 @@ def toggle_group(group_id):
     group.hidden = not group.hidden
     db.session.commit()
     status = 'hidden' if group.hidden else 'visible'
+    log_audit('group_toggle', target_type='Group', target_id=group.id,
+              details=f'hidden={group.hidden} name="{group.name}"')
     flash(f'Group "{group.name}" is now {status}')
     return redirect(url_for('admin.list_groups'))
 
@@ -181,6 +197,8 @@ def toggle_staff(user_id):
     user.is_staff = not user.is_staff
     db.session.commit()
     status = 'granted' if user.is_staff else 'removed'
+    log_audit('user_toggle_staff', target_type='User', target_id=user.id,
+              details=f'username="{user.username}" status={status}')
     flash(f'Staff access {status} for {user.username}')
     return redirect(url_for('admin.list_users'))
 
@@ -196,6 +214,8 @@ def toggle_admin(user_id):
     user.is_admin = not user.is_admin
     db.session.commit()
     status = 'granted' if user.is_admin else 'removed'
+    log_audit('user_toggle_admin', target_type='User', target_id=user.id,
+              details=f'username="{user.username}" status={status}')
     flash(f'Admin access {status} for {user.username}')
     return redirect(url_for('admin.list_users'))
 
@@ -218,6 +238,8 @@ def reset_password(user_id):
     if form.validate_on_submit():
         user.set_password(form.new_password.data)
         db.session.commit()
+        log_audit('user_reset_password', target_type='User', target_id=user.id,
+                  details=f'username="{user.username}"')
         flash(f'Password reset for {user.username}')
         return redirect(url_for('admin.view_user', user_id=user_id))
     return render_template('admin/reset_password.html', form=form, user=user)
@@ -236,9 +258,12 @@ def edit_user(user_id):
         if form.email.data != user.email and User.query.filter_by(email=form.email.data).first():
             flash('Email already taken')
             return render_template('admin/edit_user.html', form=form, user=user)
+        old_username, old_email = user.username, user.email
         user.username = form.username.data
         user.email = form.email.data
         db.session.commit()
+        log_audit('user_edit', target_type='User', target_id=user.id,
+                  details=f'{old_username}->{user.username} ({old_email}->{user.email})')
         flash('User updated')
         return redirect(url_for('admin.view_user', user_id=user_id))
     return render_template('admin/edit_user.html', form=form, user=user)
@@ -265,6 +290,8 @@ def create_user():
         user.set_password(form.password.data)
         db.session.add(user)
         db.session.commit()
+        log_audit('user_create', target_type='User', target_id=user.id,
+                  details=f'username="{user.username}" staff={user.is_staff} admin={user.is_admin}')
         flash(f'User "{user.username}" created')
         return redirect(url_for('admin.list_users'))
     return render_template('admin/create_user.html', form=form)
@@ -279,6 +306,8 @@ def add_group_to_user(user_id, group_id):
     if group not in user.groups:
         user.groups.append(group)
         db.session.commit()
+        log_audit('user_add_group', target_type='User', target_id=user.id,
+                  details=f'username="{user.username}" group="{group.name}"')
         flash(f'Added {user.username} to {group.name}')
     return redirect(url_for('admin.view_user', user_id=user_id))
 
@@ -292,6 +321,8 @@ def remove_group_from_user(user_id, group_id):
     if group in user.groups:
         user.groups.remove(group)
         db.session.commit()
+        log_audit('user_remove_group', target_type='User', target_id=user.id,
+                  details=f'username="{user.username}" group="{group.name}"')
         flash(f'Removed {user.username} from {group.name}')
     return redirect(url_for('admin.view_user', user_id=user_id))
 
@@ -324,6 +355,8 @@ def create_state():
         state = CaseState(name=form.name.data, sort_order=form.sort_order.data)
         db.session.add(state)
         db.session.commit()
+        log_audit('state_create', target_type='CaseState', target_id=state.id,
+                  details=f'name="{state.name}"')
         flash(f'State "{state.name}" created')
         return redirect(url_for('admin.list_states'))
     return render_template('admin/state_form.html', form=form, title='Create State')
@@ -345,6 +378,8 @@ def edit_state(state_id):
         state.name = form.name.data
         state.sort_order = form.sort_order.data
         db.session.commit()
+        log_audit('state_edit', target_type='CaseState', target_id=state.id,
+                  details=f'name="{state.name}" order={state.sort_order}')
         flash('State updated')
         return redirect(url_for('admin.list_states'))
     return render_template('admin/state_form.html', form=form, title='Edit State', state=state)
@@ -359,6 +394,8 @@ def delete_state(state_id):
     if cases_using:
         flash(f'Cannot delete "{state.name}" — {cases_using} case(s) are using it')
         return redirect(url_for('admin.list_states'))
+    log_audit('state_delete', target_type='CaseState', target_id=state.id,
+              details=f'name="{state.name}"')
     db.session.delete(state)
     db.session.commit()
     flash('State deleted')
@@ -373,6 +410,8 @@ def toggle_state(state_id):
     state.hidden = not state.hidden
     db.session.commit()
     status = 'hidden' if state.hidden else 'visible'
+    log_audit('state_toggle', target_type='CaseState', target_id=state.id,
+              details=f'name="{state.name}" hidden={state.hidden}')
     flash(f'State "{state.name}" is now {status}')
     return redirect(url_for('admin.list_states'))
 
@@ -411,6 +450,8 @@ def create_type():
         item = CaseType(name=form.name.data, sort_order=form.sort_order.data, sla_hours=sla)
         db.session.add(item)
         db.session.commit()
+        log_audit('type_create', target_type='CaseType', target_id=item.id,
+                  details=f'name="{item.name}" sla_hours={sla}')
         flash(f'Type "{item.name}" created')
         return redirect(url_for('admin.list_types'))
     return render_template('admin/option_form.html', form=form, title='Create Type', label='type')
@@ -437,6 +478,8 @@ def edit_type(item_id):
                 pass
         item.sla_hours = sla
         db.session.commit()
+        log_audit('type_edit', target_type='CaseType', target_id=item.id,
+                  details=f'name="{item.name}" sla_hours={item.sla_hours}')
         flash('Type updated')
         return redirect(url_for('admin.list_types'))
     return render_template('admin/option_form.html', form=form, title='Edit Type', label='type', item=item)
@@ -451,6 +494,8 @@ def delete_type(item_id):
     if in_use:
         flash(f'Cannot delete "{item.name}" — {in_use} case(s) are using it')
         return redirect(url_for('admin.list_types'))
+    log_audit('type_delete', target_type='CaseType', target_id=item.id,
+              details=f'name="{item.name}"')
     db.session.delete(item)
     db.session.commit()
     flash('Type deleted')
@@ -465,6 +510,8 @@ def toggle_type(item_id):
     item.hidden = not item.hidden
     db.session.commit()
     status = 'hidden' if item.hidden else 'visible'
+    log_audit('type_toggle', target_type='CaseType', target_id=item.id,
+              details=f'name="{item.name}" hidden={item.hidden}')
     flash(f'Type "{item.name}" is now {status}')
     return redirect(url_for('admin.list_types'))
 
@@ -497,6 +544,8 @@ def create_category():
         item = CaseCategory(name=form.name.data, sort_order=form.sort_order.data)
         db.session.add(item)
         db.session.commit()
+        log_audit('category_create', target_type='CaseCategory', target_id=item.id,
+                  details=f'name="{item.name}"')
         flash(f'Category "{item.name}" created')
         return redirect(url_for('admin.list_categories'))
     return render_template('admin/option_form.html', form=form, title='Create Category', label='category')
@@ -516,6 +565,8 @@ def edit_category(item_id):
         item.name = form.name.data
         item.sort_order = form.sort_order.data
         db.session.commit()
+        log_audit('category_edit', target_type='CaseCategory', target_id=item.id,
+                  details=f'name="{item.name}"')
         flash('Category updated')
         return redirect(url_for('admin.list_categories'))
     return render_template('admin/option_form.html', form=form, title='Edit Category', label='category', item=item)
@@ -530,6 +581,8 @@ def delete_category(item_id):
     if in_use:
         flash(f'Cannot delete "{item.name}" — {in_use} case(s) are using it')
         return redirect(url_for('admin.list_categories'))
+    log_audit('category_delete', target_type='CaseCategory', target_id=item.id,
+              details=f'name="{item.name}"')
     db.session.delete(item)
     db.session.commit()
     flash('Category deleted')
@@ -544,6 +597,8 @@ def toggle_category(item_id):
     item.hidden = not item.hidden
     db.session.commit()
     status = 'hidden' if item.hidden else 'visible'
+    log_audit('category_toggle', target_type='CaseCategory', target_id=item.id,
+              details=f'name="{item.name}" hidden={item.hidden}')
     flash(f'Category "{item.name}" is now {status}')
     return redirect(url_for('admin.list_categories'))
 
@@ -575,6 +630,70 @@ def org_settings():
         org.smtp_from_email = form.smtp_from_email.data or ''
         org.smtp_use_tls = form.smtp_use_tls.data
         db.session.commit()
+        log_audit('org_settings_update', target_type='OrgSetting', target_id=org.id,
+                  details=f'smtp_server="{org.smtp_server}" tls={org.smtp_use_tls}')
         flash('Organization settings updated')
         return redirect(url_for('admin.org_settings'))
     return render_template('admin/settings.html', form=form)
+
+
+
+@admin_bp.route('/audit-log')
+@login_required
+@admin_required
+def list_audit_log():
+    """F2: read-only view of the administrative audit trail."""
+    from app.models import AuditLog
+
+    query = AuditLog.query
+    action_filter = request.args.get('action', '').strip()
+    target_filter = request.args.get('target', '').strip()
+    actor_filter = request.args.get('actor', '').strip()
+
+    if action_filter:
+        query = query.filter(AuditLog.action.ilike(f'%{action_filter}%'))
+    if target_filter:
+        query = query.filter(AuditLog.target_type.ilike(f'%{target_filter}%'))
+    if actor_filter:
+        query = query.filter(AuditLog.actor_name.ilike(f'%{actor_filter}%'))
+
+    query = query.order_by(AuditLog.timestamp.desc()).limit(500)
+    logs = query.all()
+
+    actions = (
+        db.session.query(AuditLog.action)
+        .distinct()
+        .order_by(AuditLog.action.asc())
+        .all()
+    )
+    action_choices = [a[0] for a in actions]
+
+    return render_template('admin/audit_log.html', logs=logs,
+                           action_filter=action_filter, target_filter=target_filter,
+                           actor_filter=actor_filter, action_choices=action_choices)
+
+
+@admin_bp.route('/audit-log/export')
+@login_required
+@admin_required
+def export_audit_log():
+    """F2: download the audit trail as CSV."""
+    import csv
+
+    from app.models import AuditLog
+
+    query = AuditLog.query.order_by(AuditLog.timestamp.asc())
+    if request.args.get('action'):
+        query = query.filter(AuditLog.action.ilike(f'%{request.args.get("action")}%'))
+
+    out = StringIO()
+    w = csv.writer(out)
+    w.writerow(['timestamp', 'action', 'actor', 'target_type', 'target_id', 'details'])
+    for log in query.all():
+        ts = (log.timestamp or datetime.utcnow()).strftime('%Y-%m-%d %H:%M:%S')
+        w.writerow([ts, log.action, log.actor_name or '', log.target_type or '',
+                    log.target_id or '', log.details or ''])
+
+    response = Response(out.getvalue(), mimetype='text/csv')
+    response.headers['Content-Disposition'] = 'attachment; filename=audit_log.csv'
+    return response
