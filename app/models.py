@@ -146,6 +146,9 @@ class Case(db.Model):
     sla_total_paused_seconds = db.Column(db.Integer, default=0)
     ola_status = db.Column(db.String(20), nullable=True)
     sla_status = db.Column(db.String(20), nullable=True)
+    # F5: soft-delete marker. Rows with a non-null deleted_at are hidden from
+    # every normal query and purged from the DB once past the retention window.
+    deleted_at = db.Column(db.DateTime, nullable=True)
 
     state = db.relationship('CaseState', foreign_keys=[state_id])
     assignment_group = db.relationship('Group', foreign_keys=[assignment_group_id])

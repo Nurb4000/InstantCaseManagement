@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">Deleted Cases</h2>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('cases.all_cases') }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Cases</a>
+        <form method="POST" action="{{ url_for('cases.purge_cases_route') }}" class="d-inline"
+              onsubmit="return confirm('Permanently delete all cases past the retention window? This cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger"><i class="fas fa-trash-alt"></i> Purge Expired</button>
+        </form>
+    </div>
+</div>
+
+{% if cases %}
+    <div class="table-responsive">
+        <table class="table table-dark table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th class="nowrap">Created</th>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>State</th>
+                    <th>Assigned To</th>
+                    <th>Group</th>
+                    <th>Status</th>
+                    <th class="nowrap">Deleted At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                <tr>
+                    <td>{{ case.id }}</td>
+                    <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ case.title }}</td>
+                    <td>{{ case.case_type or '—' }}</td>
+                    <td>{{ case.state.name if case.state else '—' }}</td>
+                    <td>{{ case.assigned_to.username if case.assigned_to else '—' }}</td>
+                    <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
+                    <td><span class="status-{{ case.status }}">{{ case.status.title() }}</span></td>
+                    <td class="nowrap">{{ case.deleted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
+                        <form method="POST" action="{{ url_for('cases.restore_case', case_id=case.id) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-success">Restore</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-inbox fa-3x mb-3 text-muted"></i>
+        <h4>No deleted cases</h4>
+        <p class="text-muted">Soft-deleted cases will appear here.</p>
+    </div>
+{% endif %}
+{% endblock %}

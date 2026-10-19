@@ -156,7 +156,7 @@ def test_registration_enabled_by_default(app, client, monkeypatch):
 # Q2 — Flask-Migrate schema bootstrap
 # ---------------------------------------------------------------------------
 
-HEAD_REVISION = 'bfdd761df1c5'  # add audit_log table (F2); keep in sync with migrations/versions/
+HEAD_REVISION = 'b5b892f58eec'  # add case deleted_at soft-delete column (F5); keep in sync with migrations/versions/
 
 
 def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):

@@ -15,6 +15,7 @@ def run_ola_sla_update(app):
         now = datetime.utcnow()
         cases = Case.query.filter(
             Case.status != 'resolved',
+            Case.deleted_at.is_(None),
             Case.ola_started_at.isnot(None) | Case.sla_started_at.isnot(None)
         ).all()
 

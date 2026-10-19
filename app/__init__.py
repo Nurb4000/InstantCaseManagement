@@ -207,6 +207,12 @@ def create_app(testing=False):
     if not testing:
         from apscheduler.schedulers.background import BackgroundScheduler
         from app.scheduler import run_ola_sla_update
+
+        def _purge_cases(ctx_app):
+            from app.routes.cases import purge_expired_cases
+            with ctx_app.app_context():
+                purge_expired_cases(actor_name='scheduler')
+
         scheduler = BackgroundScheduler()
         scheduler.add_job(
             func=run_ola_sla_update,
@@ -215,6 +221,17 @@ def create_app(testing=False):
             args=[app],
             id='ola_sla_updater',
             replace_existing=True,
+        )
+        # F5: daily retention purge (03:00 UTC). Soft-deleted cases older than
+        # CASE_RETENTION_DAYS are hard-removed. Disabled when <= 0.
+        scheduler.add_job(
+            func=_purge_cases,
+            trigger='cron',
+            hour=3,
+            args=[app],
+            id='case_retention_purge',
+            replace_existing=True,
+            misfire_grace_time=3600,
         )
         scheduler.start()
 

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">Import Cases</h2>
+    <a href="{{ url_for('cases.all_cases') }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Cases</a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">Upload CSV</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('cases.import_cases') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label">CSV File</label>
+                        <input type="file" class="form-control" name="file" accept=".csv" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Import</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Expected format</div>
+            <div class="card-body">
+                <p class="text-muted mb-2">Required columns: <strong>Title</strong>, <strong>Description</strong>.</p>
+                <p class="text-muted mb-2">Optional columns: Submitted By, Submitted For, Type, Category, Group, State, Assigned To, Status.</p>
+                <ul class="text-muted small mb-3">
+                    <li>Missing <em>Type/Category/Group/State</em> values are created automatically.</li>
+                    <li><em>Submitted By</em> must match an existing user (username or email).</li>
+                    <li>Status accepts <code>open</code>, <code>in progress</code>, or <code>resolved</code> (default <code>open</code>).</li>
+                </ul>
+                <h6>Sample header row:</h6>
+                <code>Title,Description,Submitted By,Type,Category,Group,State,Assigned To,Status</code>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

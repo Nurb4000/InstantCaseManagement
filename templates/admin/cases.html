@@ -1,82 +1,141 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div class="d-flex align-items-center gap-3">
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <div>
         <h2 class="mb-0">All Cases</h2>
-        <form method="GET" class="d-flex gap-2 align-items-center ms-auto flex-wrap">
-            {% if show_resolved %}<input type="hidden" name="resolved" value="1">{% endif %}
-            <select name="field" class="form-select form-select-sm" style="width: auto;">
-                <option value="all" {{ 'selected' if field == 'all' }}>All Fields</option>
-                <option value="id" {{ 'selected' if field == 'id' }}>ID</option>
-                <option value="title" {{ 'selected' if field == 'title' }}>Title</option>
-                <option value="description" {{ 'selected' if field == 'description' }}>Description</option>
-                <option value="type" {{ 'selected' if field == 'type' }}>Type</option>
-                <option value="category" {{ 'selected' if field == 'category' }}>Category</option>
-                <option value="status" {{ 'selected' if field == 'status' }}>Status</option>
-                <option value="submitted_for" {{ 'selected' if field == 'submitted_for' }}>Submitted For</option>
-                <option value="submitted_by" {{ 'selected' if field == 'submitted_by' }}>Submitted By</option>
-                <option value="assigned_to" {{ 'selected' if field == 'assigned_to' }}>Assigned To</option>
-                <option value="group" {{ 'selected' if field == 'group' }}>Group</option>
-            </select>
-            <input type="text" name="q" class="form-control form-control-sm" style="width: 180px;" placeholder="Search..." value="{{ q or '' }}">
-            <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ date_from or '' }}" title="From date">
-            <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ date_to or '' }}" title="To date">
-            <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-search"></i></button>
-            {% if q or date_from or date_to %}<a href="{{ url_for('cases.all_cases', resolved=1 if show_resolved else 0) }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
-        </form>
-        <a href="{{ url_for('cases.export_all_cases', resolved=1 if show_resolved else 0, q=q, field=field, date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a>
     </div>
-    <div class="d-flex gap-2 mt-2">
-        <a href="{{ url_for('cases.all_cases', resolved=0) }}" class="btn btn-sm {{ 'btn-primary' if not show_resolved else 'btn-outline-secondary' }}">Open Cases</a>
-        <a href="{{ url_for('cases.all_cases', resolved=1) }}" class="btn btn-sm {{ 'btn-primary' if show_resolved else 'btn-outline-secondary' }}">Include Resolved</a>
+    <div class="d-flex gap-2">
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('cases.import_cases') }}" class="btn btn-outline-secondary"><i class="fas fa-upload"></i> Import</a>
+        <a href="{{ url_for('cases.list_deleted_cases') }}" class="btn btn-outline-danger"><i class="fas fa-trash"></i> Deleted</a>
+        {% endif %}
     </div>
 </div>
 
+<!-- Search / filter bar -->
+<div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+    <form method="GET" class="d-flex gap-2 align-items-center flex-grow-1 flex-wrap">
+        {% if show_resolved %}<input type="hidden" name="resolved" value="1">{% endif %}
+        <select name="field" class="form-select form-select-sm" style="width: auto;">
+            <option value="all" {{ 'selected' if field == 'all' }}>All Fields</option>
+            <option value="id" {{ 'selected' if field == 'id' }}>ID</option>
+            <option value="title" {{ 'selected' if field == 'title' }}>Title</option>
+            <option value="description" {{ 'selected' if field == 'description' }}>Description</option>
+            <option value="type" {{ 'selected' if field == 'type' }}>Type</option>
+            <option value="category" {{ 'selected' if field == 'category' }}>Category</option>
+            <option value="status" {{ 'selected' if field == 'status' }}>Status</option>
+            <option value="submitted_for" {{ 'selected' if field == 'submitted_for' }}>Submitted For</option>
+            <option value="submitted_by" {{ 'selected' if field == 'submitted_by' }}>Submitted By</option>
+            <option value="assigned_to" {{ 'selected' if field == 'assigned_to' }}>Assigned To</option>
+            <option value="group" {{ 'selected' if field == 'group' }}>Group</option>
+        </select>
+        <input type="text" name="q" class="form-control form-control-sm" style="width: 180px;" placeholder="Search..." value="{{ q or '' }}">
+        <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ date_from or '' }}" title="From date">
+        <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ date_to or '' }}" title="To date">
+        <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-search"></i></button>
+        {% if q or date_from or date_to %}<a href="{{ url_for('cases.all_cases', resolved=1 if show_resolved else 0) }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+        <a href="{{ url_for('cases.export_all_cases', resolved=1 if show_resolved else 0, q=q, field=field, date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-secondary" title="Export CSV"><i class="fas fa-download"></i></a>
+    </form>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('cases.all_cases', resolved=0) }}" class="btn btn-sm {{ 'btn-primary' if not show_resolved else 'btn-outline-secondary' }}">Open</a>
+        <a href="{{ url_for('cases.all_cases', resolved=1) }}" class="btn btn-sm {{ 'btn-primary' if show_resolved else 'btn-outline-secondary' }}">Resolved</a>
+    </div>
+</div>
+
+<!-- Bulk actions -->
+<form id="bulkForm" method="POST" action="{{ url_for('cases.bulk_action') }}" class="card mb-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="card-body">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <span class="font-weight-bold">Bulk actions:</span>
+            <select name="action" id="bulkAction" class="form-select form-select-sm" style="width:auto;">
+                <option value="change_state">Change state</option>
+                <option value="assign">Assign</option>
+                <option value="resolve">Resolve</option>
+                <option value="delete">Soft delete</option>
+            </select>
+            <select name="state_id" class="form-select form-select-sm" style="width:auto;" title="Target state">
+                <option value="">State…</option>
+                {% for s in states %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+            </select>
+            <select name="assigned_to" class="form-select form-select-sm" style="width:auto;" title="Assignee">
+                <option value="">Assignee…</option>
+                {% for u in staff %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+            </select>
+            <input type="text" name="reason" class="form-control form-control-sm" style="width:220px;" placeholder="Reason (required)">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-check-double"></i> Apply</button>
+        </div>
+        <small class="text-muted">Select cases below, choose an action, and apply. Resolve requires the case to be assigned to you.</small>
+    </div>
+</form>
+
 {% if cases %}
-    <div class="table-responsive">
-        <table class="table table-dark table-hover sortable">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th class="nowrap">Created</th>
-                    <th>Title</th>
-                    <th>Type</th>
-                    <th>Category</th>
-                    <th>State</th>
-                    <th>Submitted By</th>
-                    <th>Submitted For</th>
-                    <th>Assigned To</th>
-                    <th>Group</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for case in cases %}
-                <tr>
-                    <td>{{ case.id }}</td>
-                    <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
-                    <td>{{ case.title }}</td>
-                    <td>{{ case.case_type }}</td>
-                    <td>{{ case.category }}</td>
-                    <td>{{ case.state.name if case.state else '-' }}</td>
-                    <td>{{ case.user.username }}</td>
-                    <td>{{ case.submitted_for or '-' }}</td>
-                    <td>{{ case.assigned_to.username if case.assigned_to else '—' }}</td>
-                    <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
-                    <td><span class="status-{{ case.status }}">{{ case.status.title() }}</span></td>
-                    <td>
+<div class="table-responsive">
+    <table class="table table-dark table-hover sortable">
+        <thead>
+            <tr>
+                <th class="nowrap"><input type="checkbox" id="selectAll" title="Select all"></th>
+                <th>ID</th>
+                <th class="nowrap">Created</th>
+                <th>Title</th>
+                <th>Type</th>
+                <th>Category</th>
+                <th>State</th>
+                <th>Submitted By</th>
+                <th>Submitted For</th>
+                <th>Assigned To</th>
+                <th>Group</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for case in cases %}
+            <tr>
+                <td class="nowrap"><input type="checkbox" name="case_ids" value="{{ case.id }}" form="bulkForm" class="row-select"></td>
+                <td>{{ case.id }}</td>
+                <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                <td>{{ case.title }}</td>
+                <td>{{ case.case_type }}</td>
+                <td>{{ case.category }}</td>
+                <td>{{ case.state.name if case.state else '-' }}</td>
+                <td>{{ case.user.username }}</td>
+                <td>{{ case.submitted_for or '-' }}</td>
+                <td>{{ case.assigned_to.username if case.assigned_to else '—' }}</td>
+                <td>{{ case.assignment_group.name if case.assignment_group else '—' }}</td>
+                <td><span class="status-{{ case.status }}">{{ case.status.title() }}</span></td>
+                <td>
+                    <div class="d-flex gap-1">
                         <a href="{{ url_for('cases.view_case', case_id=case.id) }}" class="btn btn-sm btn-outline-primary">View</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+                        <form method="POST" action="{{ url_for('cases.bulk_action') }}" class="d-inline"
+                              onsubmit="return confirm('Soft-delete case #{{ case.id }}?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="case_ids" value="{{ case.id }}">
+                            <input type="hidden" name="action" value="delete">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Soft delete"><i class="fas fa-trash"></i></button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
-    <div class="text-center py-5">
-        <i class="fas fa-inbox fa-3x mb-3 text-muted"></i>
-        <h4>No cases found</h4>
-    </div>
+<div class="text-center py-5">
+    <i class="fas fa-inbox fa-3x mb-3 text-muted"></i>
+    <h4>No cases found</h4>
+</div>
 {% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var all = document.getElementById('selectAll');
+        if (all) {
+            all.addEventListener('change', function () {
+                document.querySelectorAll('input.row-select').forEach(function (cb) { cb.checked = all.checked; });
+            });
+        }
+    });
+</script>
 {% endblock %}

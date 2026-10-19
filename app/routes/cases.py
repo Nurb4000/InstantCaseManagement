@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 import csv
 from io import StringIO
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, Response
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, Response, abort
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
@@ -13,6 +13,7 @@ from app.forms import CaseForm, CommentForm, AssignForm, EditCaseForm
 from app.ola import start_ola, stop_ola, restart_ola, update_ola, get_ola_elapsed
 from app.sla import start_sla, stop_sla, pause_sla, resume_sla, recalculate_sla, update_sla, get_sla_color, get_sla_pct
 from app.email import notify_group_assignment, notify_user_assignment, notify_comment_added, notify_resolution, send_email
+from app.audit import log_audit
 
 cases_bp = Blueprint('cases', __name__)
 
@@ -69,6 +70,61 @@ def _date_filter(query, date_from, date_to):
     return query
 
 
+def _live(query):
+    """F5: exclude soft-deleted cases from a Case query."""
+    return query.filter(Case.deleted_at.is_(None))
+
+
+def _load_case(case_id):
+    """F5: load a case by id, 404ing if it is missing or soft-deleted.
+
+    ``Query.get()`` cannot run against a filtered query, so soft-deleted cases
+    are filtered here explicitly rather than via ``_live``.
+    """
+    case = Case.query.get_or_404(case_id)
+    if case.deleted_at is not None:
+        abort(404)
+    return case
+
+
+def _retention_days():
+    try:
+        days = int(os.environ.get('CASE_RETENTION_DAYS', '365'))
+    except (TypeError, ValueError):
+        days = 365
+    # 0 (or negative) means retention is disabled and deleted cases are kept.
+    return days if days > 0 else 0
+
+
+def purge_expired_cases(retention_days=None, actor_name=None):
+    """F5: hard-delete soft-deleted cases whose deletion predates retention.
+
+    Returns the number of cases purged. A retention of 0 disables purging.
+    """
+    from app.audit import log_audit
+
+    if retention_days is None:
+        retention_days = _retention_days()
+    if retention_days <= 0:
+        return 0
+
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    expired = Case.query.filter(
+        Case.deleted_at.isnot(None),
+        Case.deleted_at < cutoff,
+    ).all()
+
+    for case in expired:
+        title = case.title
+        deleted = (case.deleted_at or datetime.utcnow()).strftime('%Y-%m-%d')
+        db.session.delete(case)
+        if actor_name:
+            log_audit('case_purge', target_type='Case', target_id=case.id,
+                      details=f'name="{title}" soft-deleted {deleted}')
+    db.session.commit()
+    return len(expired)
+
+
 @cases_bp.route('/')
 def index():
     if current_user.is_authenticated:
@@ -90,16 +146,16 @@ def dashboard():
 
     if current_user.is_staff:
         group_ids = user_group_ids(current_user)
-        assigned_cases = _base(Case.query.filter(
+        assigned_cases = _base(_live(Case.query).filter(
             Case.assigned_to_id == current_user.id,
             Case.status != 'resolved'
         )).all()
-        unassigned_cases = _base(Case.query.filter(
+        unassigned_cases = _base(_live(Case.query).filter(
             Case.assignment_group_id.in_(group_ids),
             Case.assigned_to_id == None,
             Case.status != 'resolved'
         )).all() if group_ids else []
-        team_cases = _base(Case.query.filter(
+        team_cases = _base(_live(Case.query).filter(
             Case.assignment_group_id.in_(group_ids),
             Case.assigned_to_id != None,
             Case.assigned_to_id != current_user.id,
@@ -132,7 +188,7 @@ def dashboard():
                                sla_pcts=sla_pcts,
                                q=q, field=field, date_from=date_from, date_to=date_to)
     else:
-        user_cases = _base(Case.query.filter_by(user_id=current_user.id)).all()
+        user_cases = _base(_live(Case.query).filter_by(user_id=current_user.id)).all()
         return render_template('user_dashboard.html', cases=user_cases, q=q, field=field, date_from=date_from, date_to=date_to)
 
 
@@ -147,7 +203,7 @@ def all_cases():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     show_resolved = request.args.get('resolved', '0') == '1'
-    query = Case.query
+    query = _live(Case.query)
     if not show_resolved:
         query = query.filter(Case.status != 'resolved')
     query = _date_filter(_search_filter(query, q, field), date_from, date_to)
@@ -156,7 +212,11 @@ def all_cases():
         update_ola(case)
         update_sla(case)
     db.session.commit()
-    return render_template('admin/cases.html', cases=cases, show_resolved=show_resolved, q=q, field=field, date_from=date_from, date_to=date_to)
+    states = CaseState.query.filter_by(hidden=False).order_by(CaseState.sort_order).all()
+    staff = User.query.filter_by(is_staff=True).order_by(User.username).all()
+    return render_template('admin/cases.html', cases=cases, show_resolved=show_resolved,
+                           q=q, field=field, date_from=date_from, date_to=date_to,
+                           states=states, staff=staff)
 
 
 def _csv_response(cases, filename):
@@ -185,7 +245,7 @@ def export_assigned():
     field = request.args.get('field', 'all')
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
-    cases = _date_filter(_search_filter(Case.query.filter(
+    cases = _date_filter(_search_filter(_live(Case.query).filter(
         Case.assigned_to_id == current_user.id,
         Case.status != 'resolved'
     ), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
@@ -202,7 +262,7 @@ def export_unassigned():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     group_ids = user_group_ids(current_user)
-    cases = _date_filter(_search_filter(Case.query.filter(
+    cases = _date_filter(_search_filter(_live(Case.query).filter(
         Case.assignment_group_id.in_(group_ids),
         Case.assigned_to_id == None,
         Case.status != 'resolved'
@@ -220,7 +280,7 @@ def export_team():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     group_ids = user_group_ids(current_user)
-    cases = _date_filter(_search_filter(Case.query.filter(
+    cases = _date_filter(_search_filter(_live(Case.query).filter(
         Case.assignment_group_id.in_(group_ids),
         Case.assigned_to_id != None,
         Case.assigned_to_id != current_user.id,
@@ -236,7 +296,7 @@ def export_user():
     field = request.args.get('field', 'all')
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
-    cases = _date_filter(_search_filter(Case.query.filter_by(user_id=current_user.id), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
+    cases = _date_filter(_search_filter(_live(Case.query).filter_by(user_id=current_user.id), q, field), date_from, date_to).order_by(Case.created_date.desc()).all()
     return _csv_response(cases, 'my_cases.csv')
 
 
@@ -250,7 +310,7 @@ def export_all_cases():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     show_resolved = request.args.get('resolved', '0') == '1'
-    query = Case.query
+    query = _live(Case.query)
     if not show_resolved:
         query = query.filter(Case.status != 'resolved')
     query = _date_filter(_search_filter(query, q, field), date_from, date_to)
@@ -298,7 +358,7 @@ def submit_case():
 @cases_bp.route('/case/<int:case_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_case(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff and case.user_id != current_user.id:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -372,7 +432,7 @@ def edit_case(case_id):
 @cases_bp.route('/case/<int:case_id>')
 @login_required
 def view_case(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff and case.user_id != current_user.id:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -415,7 +475,7 @@ def view_case(case_id):
 @cases_bp.route('/case/<int:case_id>/comment', methods=['POST'])
 @login_required
 def add_comment(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff and case.user_id != current_user.id:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -439,7 +499,7 @@ def assign_case(case_id):
     if not current_user.is_staff:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     form = AssignForm()
     if current_user.is_admin:
         group_users = User.query.filter_by(is_staff=True).order_by(User.username).all()
@@ -477,7 +537,7 @@ def assign_case(case_id):
 @cases_bp.route('/case/<int:case_id>/resolve', methods=['POST'])
 @login_required
 def resolve_case(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -507,7 +567,7 @@ def resolve_case(case_id):
 @cases_bp.route('/case/<int:case_id>/take', methods=['POST'])
 @login_required
 def take_case(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -527,7 +587,7 @@ def take_case(case_id):
 @cases_bp.route('/case/<int:case_id>/transfer', methods=['POST'])
 @login_required
 def transfer_case(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -557,7 +617,7 @@ def transfer_case(case_id):
 @cases_bp.route('/upload_attachment/<int:case_id>', methods=['POST'])
 @login_required
 def upload_attachment(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff and case.user_id != current_user.id:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -590,7 +650,7 @@ def upload_attachment(case_id):
 @cases_bp.route('/case/<int:case_id>/email-customer', methods=['POST'])
 @login_required
 def email_customer(case_id):
-    case = Case.query.get_or_404(case_id)
+    case = _load_case(case_id)
     if not current_user.is_staff:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -612,7 +672,7 @@ def email_customer(case_id):
 @login_required
 def download_attachment(attachment_id):
     attachment = Attachment.query.get_or_404(attachment_id)
-    case = Case.query.get_or_404(attachment.case_id)
+    case = _load_case(attachment.case_id)
     if not current_user.is_staff and case.user_id != current_user.id:
         flash('Access denied')
         return redirect(url_for('cases.dashboard'))
@@ -625,9 +685,9 @@ def download_attachment(attachment_id):
 def api_cases():
     if current_user.is_staff:
         group_ids = user_group_ids(current_user)
-        cases = Case.query.filter(Case.assignment_group_id.in_(group_ids)).all() if group_ids else []
+        cases = _live(Case.query).filter(Case.assignment_group_id.in_(group_ids)).all() if group_ids else []
     else:
-        cases = Case.query.filter_by(user_id=current_user.id).all()
+        cases = _live(Case.query).filter_by(user_id=current_user.id).all()
     return jsonify([{
         'id': case.id,
         'title': case.title,
@@ -636,3 +696,319 @@ def api_cases():
         'status': case.status,
         'assigned_to': case.assigned_to.username if case.assigned_to else None,
     } for case in cases])
+
+
+def _preserve_params():
+    """Carry search/filter params back to the All Cases page after a POST."""
+    return {k: request.args.get(k) for k in ('q', 'field', 'date_from', 'date_to')
+            if request.args.get(k)}
+
+
+def _apply_sla_on_state_change(case, old_state_id):
+    """Mirror edit_case's pause/resume/stop semantics after a bulk state change."""
+    waiting_state = CaseState.query.filter_by(name='Waiting on Resolution Approval').first()
+    if not waiting_state:
+        return
+    old_was_waiting = bool(old_state_id) and old_state_id == waiting_state.id
+    new_is_waiting = bool(case.state_id) and case.state_id == waiting_state.id
+    if case.status == 'resolved':
+        stop_sla(case)
+    elif new_is_waiting and not old_was_waiting:
+        pause_sla(case)
+    elif old_was_waiting and not new_is_waiting:
+        resume_sla(case)
+
+
+@cases_bp.route('/bulk-action', methods=['POST'])
+@login_required
+def bulk_action():
+    """F9: apply one action (change state, assign, resolve, delete) to many
+    cases at once. Per-case authorization is enforced: non-admins may only act
+    on cases in their own groups, and resolve/assign carry extra constraints.
+    """
+    if not current_user.is_staff:
+        flash('Access denied')
+        return redirect(url_for('cases.dashboard'))
+
+    case_ids = [i for i in request.form.getlist('case_ids', type=int) if i]
+    action = (request.form.get('action') or '').strip()
+    if action not in ('change_state', 'assign', 'resolve', 'delete'):
+        flash('Invalid action')
+        return redirect(url_for('cases.all_cases', **_preserve_params()))
+    if not case_ids:
+        flash('No cases selected')
+        return redirect(url_for('cases.all_cases', **_preserve_params()))
+
+    group_ids = user_group_ids(current_user) if not current_user.is_admin else None
+
+    def _authorized(case):
+        return current_user.is_admin or case.assignment_group_id in group_ids
+
+    candidates = _live(Case.query).filter(Case.id.in_(case_ids)).all()
+    counts = {'applied': 0, 'not_authorized': 0, 'condition_failed': 0}
+
+    if action == 'change_state':
+        reason = (request.form.get('reason') or '').strip()
+        new_state_id = request.form.get('state_id', type=int)
+        if not reason:
+            flash('A reason is required to change case state')
+            return redirect(url_for('cases.all_cases', **_preserve_params()))
+        if not new_state_id:
+            flash('No state selected')
+            return redirect(url_for('cases.all_cases', **_preserve_params()))
+        for case in candidates:
+            if not _authorized(case):
+                counts['not_authorized'] += 1
+                continue
+            old_state_id = case.state_id
+            case.state_id = new_state_id
+            db.session.add(Comment(
+                content=f'Bulk state change ({reason})',
+                user_id=current_user.id, case_id=case.id))
+            db.session.commit()
+            _apply_sla_on_state_change(case, old_state_id)
+            log_audit('case_bulk_state', target_type='Case', target_id=case.id,
+                      details=f'state_id={new_state_id} by={current_user.username}')
+            counts['applied'] += 1
+
+    elif action == 'assign':
+        target_user = User.query.get(request.form.get('assigned_to', type=int)) if request.form.get('assigned_to', type=int) else None
+        if not target_user or not target_user.is_staff:
+            flash('Select a valid staff assignee')
+            return redirect(url_for('cases.all_cases', **_preserve_params()))
+        for case in candidates:
+            if not _authorized(case):
+                counts['not_authorized'] += 1
+                continue
+            if not current_user.is_admin and not (set(group_ids) & set(g.id for g in target_user.groups)):
+                counts['condition_failed'] += 1
+                continue
+            case.assigned_to_id = target_user.id
+            stop_ola(case)
+            db.session.commit()
+            notify_user_assignment(case, target_user)
+            log_audit('case_bulk_assign', target_type='Case', target_id=case.id,
+                      details=f'assignee={target_user.username} by={current_user.username}')
+            counts['applied'] += 1
+
+    elif action == 'resolve':
+        reason = (request.form.get('reason') or '').strip()
+        if not reason:
+            flash('A resolution reason is required')
+            return redirect(url_for('cases.all_cases', **_preserve_params()))
+        for case in candidates:
+            if not _authorized(case):
+                counts['not_authorized'] += 1
+                continue
+            if case.assigned_to_id != current_user.id:
+                counts['condition_failed'] += 1
+                continue
+            last_comment = Comment.query.filter_by(case_id=case.id).order_by(Comment.created_date.desc()).first()
+            db.session.add(Comment(content=f'Case resolved: {reason}', user_id=current_user.id, case_id=case.id))
+            case.resolved_date = datetime.utcnow()
+            case.status = 'resolved'
+            db.session.commit()
+            stop_sla(case)
+            notify_resolution(case, reason, last_comment=last_comment)
+            log_audit('case_bulk_resolve', target_type='Case', target_id=case.id,
+                      details=f'reason by={current_user.username}')
+            counts['applied'] += 1
+
+    elif action == 'delete':
+        for case in candidates:
+            if not _authorized(case):
+                counts['not_authorized'] += 1
+                continue
+            case.deleted_at = datetime.utcnow()
+            db.session.commit()
+            log_audit('case_bulk_delete', target_type='Case', target_id=case.id,
+                      details=f'name="{case.title}" by={current_user.username}')
+            counts['applied'] += 1
+
+    if counts['applied']:
+        flash(f'Applied "{action}" to {counts["applied"]} case(s)')
+    if counts['not_authorized']:
+        flash(f'{counts["not_authorized"]} case(s) skipped (not in your groups)')
+    if counts['condition_failed']:
+        flash(f'{counts["condition_failed"]} case(s) skipped (did not meet action conditions)')
+    return redirect(url_for('cases.all_cases', **_preserve_params()))
+
+
+@cases_bp.route('/case/<int:case_id>/restore', methods=['POST'])
+@login_required
+def restore_case(case_id):
+    """F5: undo a soft-delete (admin only)."""
+    if not current_user.is_admin:
+        flash('Access denied')
+        return redirect(url_for('cases.dashboard'))
+    case = Case.query.get_or_404(case_id)
+    if case.deleted_at is None:
+        flash('Case is not deleted')
+        return redirect(url_for('cases.all_cases'))
+    case.deleted_at = None
+    db.session.commit()
+    log_audit('case_restore', target_type='Case', target_id=case.id,
+              details=f'name="{case.title}" by={current_user.username}')
+    flash('Case restored')
+    return redirect(url_for('cases.all_cases'))
+
+
+@cases_bp.route('/admin/cases/deleted')
+@login_required
+def list_deleted_cases():
+    """F5: admin view of soft-deleted cases with restore options."""
+    if not current_user.is_admin:
+        flash('Access denied')
+        return redirect(url_for('cases.dashboard'))
+    cases = Case.query.filter(Case.deleted_at.isnot(None)) \
+        .order_by(Case.deleted_at.desc()).all()
+    return render_template('admin/cases_deleted.html', cases=cases)
+
+
+@cases_bp.route('/admin/cases/purge', methods=['POST'])
+@login_required
+def purge_cases_route():
+    """F5: hard-delete soft-deleted cases past the retention window."""
+    if not current_user.is_admin:
+        flash('Access denied')
+        return redirect(url_for('cases.dashboard'))
+    retention = request.args.get('retention_days', type=int)
+    kept = purge_expired_cases(retention_days=retention, actor_name=current_user.username)
+    flash(f'Purged {kept} expired deleted case(s)')
+    return redirect(url_for('cases.list_deleted_cases'))
+
+
+@cases_bp.route('/admin/cases/import', methods=['GET', 'POST'])
+@login_required
+def import_cases():
+    """F9: import cases from a CSV file."""
+    if not current_user.is_admin:
+        flash('Access denied')
+        return redirect(url_for('cases.dashboard'))
+
+    if request.method == 'GET':
+        return render_template('admin/import_cases.html')
+
+    if 'file' not in request.files:
+        flash('No file selected')
+        return redirect(url_for('cases.import_cases'))
+    file = request.files['file']
+    if file.filename == '':
+        flash('No file selected')
+        return redirect(url_for('cases.import_cases'))
+    if not file.filename.endswith('.csv'):
+        flash('Only CSV files are accepted')
+        return redirect(url_for('cases.import_cases'))
+
+    text = file.read().decode('utf-8-sig')
+    reader = csv.DictReader(StringIO(text))
+    rows = [r for r in reader if any((v or '').strip() for v in r.values())]
+
+    created = skipped = 0
+    errors = []
+    for idx, row in enumerate(rows, start=2):  # line 2 (header is line 1)
+        title = (row.get('Title') or '').strip()
+        description = (row.get('Description') or '').strip()
+        if not title or not description:
+            skipped += 1
+            errors.append(f'Line {idx}: Title and Description are required')
+            continue
+
+        submitter = _resolve_user(row.get('Submitted By'))
+        if submitter is None:
+            skipped += 1
+            errors.append(f'Line {idx}: submitter "{row.get("Submitted By")}" not found')
+            continue
+
+        # Case.case_type / Case.category are name columns; resolve-or-create
+        # returns the stored name (creating the reference if missing).
+        case_type = _resolve_or_create_type(row.get('Type'))
+        category = _resolve_or_create_category(row.get('Category'))
+        group = _resolve_or_create_group(row.get('Group'))
+        state = _resolve_or_create_state(row.get('State'))
+        assignee = _resolve_user(row.get('Assigned To'))
+
+        status = (row.get('Status') or 'open').strip().lower()
+        if status not in ('open', 'in progress', 'resolved'):
+            status = 'open'
+
+        case = Case(
+            title=title,
+            description=description,
+            user_id=submitter.id,
+            assigned_to_id=assignee.id if assignee else None,
+            submitted_for=(row.get('Submitted For') or '').strip() or None,
+            case_type=case_type,
+            category=category,
+            state_id=state.id if state else None,
+            assignment_group_id=group.id if group else None,
+            status=status,
+        )
+        db.session.add(case)
+        db.session.commit()
+        if group:
+            start_ola(case)
+        if case_type:
+            start_sla(case)
+        log_audit('case_import', target_type='Case', target_id=case.id,
+                  details=f'name="{title}" type={case_type or "none"}')
+        created += 1
+
+    flash(f'Imported {created} case(s); skipped {skipped}')
+    for err in errors[:20]:
+        flash(err, 'error')
+    return redirect(url_for('cases.all_cases'))
+
+
+def _resolve_user(value):
+    if not value or not value.strip():
+        return None
+    user = User.query.filter(db.or_(
+        User.username.ilike(value.strip()),
+        User.email.ilike(value.strip()),
+    )).first()
+    return user
+
+
+def _resolve_or_create_type(name):
+    if not name or not name.strip():
+        return None
+    ct = CaseType.query.filter_by(name=name.strip()).first()
+    if not ct:
+        ct = CaseType(name=name.strip(), sort_order=CaseType.query.count())
+        db.session.add(ct)
+        db.session.commit()
+    return ct.name
+
+
+def _resolve_or_create_category(name):
+    if not name or not name.strip():
+        return None
+    cat = CaseCategory.query.filter_by(name=name.strip()).first()
+    if not cat:
+        cat = CaseCategory(name=name.strip(), sort_order=CaseCategory.query.count())
+        db.session.add(cat)
+        db.session.commit()
+    return cat.name
+
+
+def _resolve_or_create_state(name):
+    if not name or not name.strip():
+        return None
+    state = CaseState.query.filter_by(name=name.strip()).first()
+    if not state:
+        state = CaseState(name=name.strip(), sort_order=CaseState.query.count())
+        db.session.add(state)
+        db.session.commit()
+    return state
+
+
+def _resolve_or_create_group(name):
+    if not name or not name.strip():
+        return None
+    group = Group.query.filter_by(name=name.strip()).first()
+    if not group:
+        group = Group(name=name.strip())
+        db.session.add(group)
+        db.session.commit()
+    return group
