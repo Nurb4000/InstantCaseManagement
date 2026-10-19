@@ -349,8 +349,10 @@ def submit_case():
         if case.assignment_group_id:
             start_ola(case)
         start_sla(case)
-        notify_group_assignment(case)
+        group_notify_ok = notify_group_assignment(case)
         flash('Case submitted successfully')
+        if not group_notify_ok:
+            flash('Case submitted, but the group notification email could not be sent (SMTP error).', 'error')
         return redirect(url_for('cases.dashboard'))
     return render_template('submit_case.html', form=form)
 
@@ -488,8 +490,10 @@ def add_comment(case_id):
         )
         db.session.add(comment)
         db.session.commit()
-        notify_comment_added(comment, case, current_user)
+        comment_notify_ok = notify_comment_added(comment, case, current_user)
         flash('Comment added successfully')
+        if not comment_notify_ok:
+            flash('Comment added, but the notification email could not be sent (SMTP error).', 'error')
     return redirect(url_for('cases.view_case', case_id=case_id))
 
 
@@ -513,22 +517,26 @@ def assign_case(case_id):
     if form.validate_on_submit():
         user = User.query.get(form.assigned_to.data)
         if user:
+            assigned = False
             if current_user.is_admin:
                 case.assigned_to_id = user.id
                 stop_ola(case)
                 db.session.commit()
-                notify_user_assignment(case, user)
-                flash('Case assigned successfully')
+                assigned = True
             else:
                 user_group_ids_set = set(g.id for g in user.groups)
                 if set(group_ids) & user_group_ids_set:
                     case.assigned_to_id = user.id
                     stop_ola(case)
                     db.session.commit()
-                    notify_user_assignment(case, user)
-                    flash('Case assigned successfully')
-                else:
-                    flash('Invalid assignment')
+                    assigned = True
+            if assigned:
+                notify_ok = notify_user_assignment(case, user)
+                flash('Case assigned successfully')
+                if not notify_ok:
+                    flash('Case assigned, but the assignment email could not be sent (SMTP error).', 'error')
+            else:
+                flash('Invalid assignment')
         else:
             flash('Invalid assignment')
     return redirect(url_for('cases.dashboard'))
@@ -559,8 +567,10 @@ def resolve_case(case_id):
     case.status = 'resolved'
     db.session.commit()
     stop_sla(case)
-    notify_resolution(case, reason, last_comment=last_comment)
+    resolution_notify_ok = notify_resolution(case, reason, last_comment=last_comment)
     flash('Case resolved successfully')
+    if not resolution_notify_ok:
+        flash('Case resolved, but the resolution email could not be sent (SMTP error).', 'error')
     return redirect(url_for('cases.dashboard'))
 
 
@@ -609,8 +619,10 @@ def transfer_case(case_id):
     case.assigned_to_id = None
     db.session.commit()
     restart_ola(case)
-    notify_group_assignment(case)
+    transfer_notify_ok = notify_group_assignment(case)
     flash(f'Case transferred to {target_group.name}')
+    if not transfer_notify_ok:
+        flash('Case transferred, but the notification email could not be sent (SMTP error).', 'error')
     return redirect(url_for('cases.view_case', case_id=case_id))
 
 
@@ -663,8 +675,11 @@ def email_customer(case_id):
     if not to:
         flash('No recipient email available')
         return redirect(url_for('cases.view_case', case_id=case_id))
-    send_email(to, f'[Case #{case.id}] {subject}', body, case_id=case.id)
-    flash(f'Email sent to {to}')
+    sent = send_email(to, f'[Case #{case.id}] {subject}', body, case_id=case.id)
+    if sent:
+        flash(f'Email sent to {to}')
+    else:
+        flash('Email could not be sent. Please check the org SMTP settings.', 'error')
     return redirect(url_for('cases.view_case', case_id=case_id))
 
 
@@ -746,6 +761,7 @@ def bulk_action():
 
     candidates = _live(Case.query).filter(Case.id.in_(case_ids)).all()
     counts = {'applied': 0, 'not_authorized': 0, 'condition_failed': 0}
+    notify_failures = 0
 
     if action == 'change_state':
         reason = (request.form.get('reason') or '').strip()
@@ -786,7 +802,8 @@ def bulk_action():
             case.assigned_to_id = target_user.id
             stop_ola(case)
             db.session.commit()
-            notify_user_assignment(case, target_user)
+            if not notify_user_assignment(case, target_user):
+                notify_failures += 1
             log_audit('case_bulk_assign', target_type='Case', target_id=case.id,
                       details=f'assignee={target_user.username} by={current_user.username}')
             counts['applied'] += 1
@@ -809,7 +826,8 @@ def bulk_action():
             case.status = 'resolved'
             db.session.commit()
             stop_sla(case)
-            notify_resolution(case, reason, last_comment=last_comment)
+            if not notify_resolution(case, reason, last_comment=last_comment):
+                notify_failures += 1
             log_audit('case_bulk_resolve', target_type='Case', target_id=case.id,
                       details=f'reason by={current_user.username}')
             counts['applied'] += 1
@@ -831,6 +849,8 @@ def bulk_action():
         flash(f'{counts["not_authorized"]} case(s) skipped (not in your groups)')
     if counts['condition_failed']:
         flash(f'{counts["condition_failed"]} case(s) skipped (did not meet action conditions)')
+    if notify_failures:
+        flash(f'{notify_failures} notification email(s) could not be sent (SMTP error).', 'error')
     return redirect(url_for('cases.all_cases', **_preserve_params()))
 
 

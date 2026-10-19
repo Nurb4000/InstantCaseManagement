@@ -68,20 +68,26 @@ def _case_summary(case):
 
 
 def _notify_user(user, subject, body, case_id=None):
+    """Send a notification email.
+
+    Returns True when no email needed sending or it was sent successfully, and
+    False when an attempted send failed (Q6: so callers can surface the error).
+    """
     if user and user.email:
-        send_email(user.email, subject, body, case_id=case_id)
+        return send_email(user.email, subject, body, case_id=case_id)
+    return True
 
 
 def notify_group_assignment(case):
     if not case.assignment_group or not case.assignment_group.manager:
-        return
+        return True
     mgr = case.assignment_group.manager
     subject = f'[Case #{case.id}] New case assigned to {case.assignment_group.name}'
     body = (
         f'A new case has been assigned to your group "{case.assignment_group.name}".\n\n'
         f'{_case_summary(case)}'
     )
-    _notify_user(mgr, subject, body, case_id=case.id)
+    return _notify_user(mgr, subject, body, case_id=case.id)
 
 
 def notify_user_assignment(case, user):
@@ -90,7 +96,7 @@ def notify_user_assignment(case, user):
         f'Case #{case.id} has been assigned to you.\n\n'
         f'{_case_summary(case)}'
     )
-    _notify_user(user, subject, body, case_id=case.id)
+    return _notify_user(user, subject, body, case_id=case.id)
 
 
 def notify_comment_added(comment, case, commenter):
@@ -102,19 +108,19 @@ def notify_comment_added(comment, case, commenter):
         recipient = None
 
     if not recipient or recipient.id == commenter.id:
-        return
+        return True
 
     subject = f'[Case #{case.id}] New comment by {commenter.username}'
     body = (
         f'{commenter.username} added a comment to Case #{case.id}:\n\n'
         f'"{comment.content}"'
     )
-    _notify_user(recipient, subject, body, case_id=case.id)
+    return _notify_user(recipient, subject, body, case_id=case.id)
 
 
 def notify_resolution(case, reason, last_comment=None):
     if not case.user or not case.user.email:
-        return
+        return True
     subject = f'[Case #{case.id}] Case resolved'
     body = (
         f'Case #{case.id} has been resolved.\n\n'
@@ -123,7 +129,7 @@ def notify_resolution(case, reason, last_comment=None):
     if last_comment:
         body += f'\nLast comment:\n"{last_comment.content}"\n'
     body += f'\nResolution note: {reason}'
-    _notify_user(case.user, subject, body, case_id=case.id)
+    return _notify_user(case.user, subject, body, case_id=case.id)
 
 
 def notify_escalation(case, event_type, details):
@@ -135,7 +141,7 @@ def notify_escalation(case, event_type, details):
         recipient = None
 
     if not recipient:
-        return
+        return True
 
     label = event_type.replace('_', ' ').title()
     subject = f'[Case #{case.id}] {label}'
@@ -144,4 +150,4 @@ def notify_escalation(case, event_type, details):
         f'{_case_summary(case)}\n\n'
         f'Details: {details or "N/A"}'
     )
-    _notify_user(recipient, subject, body, case_id=case.id)
+    return _notify_user(recipient, subject, body, case_id=case.id)
