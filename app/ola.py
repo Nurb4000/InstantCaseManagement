@@ -68,6 +68,29 @@ def _ola_log_and_notify(case, event_type, details):
     notify_escalation(case, label, details)
 
 
+# OLA escalation thresholds, lowest -> highest severity.
+OLA_LEVELS = ('yellow', 'orange', 'red')
+
+
+def _ola_details(level, elapsed):
+    stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    verb = {'yellow': 'approaching', 'orange': 'warning', 'red': 'breached'}[level]
+    return f'OLA {verb} at {elapsed:.2f} business hours ({stamp} UTC)'
+
+
+def _catch_up_events(case, color, elapsed):
+    """Q7: backfill any missing OLA milestone events up to ``color``."""
+    from app.escalation import log_threshold_catchup
+
+    def has_event(key):
+        return bool(OLAEvent.query.filter_by(case_id=case.id, event_type=f'ola_{key}').first())
+
+    def log_and_notify(key):
+        _ola_log_and_notify(case, f'ola_{key}', _ola_details(key, elapsed))
+
+    log_threshold_catchup(OLA_LEVELS, color, has_event, log_and_notify)
+
+
 def update_ola(case):
     if case.ola_started_at is None or case.status == 'resolved' or case.assigned_to_id is not None:
         case.ola_status = None
@@ -76,28 +99,7 @@ def update_ola(case):
     elapsed = _ola_elapsed(case)
     group = _get_ola_group(case)
     color = get_ola_color(elapsed, group=group)
-
-    if color == 'red':
-        if not OLAEvent.query.filter_by(case_id=case.id, event_type='ola_red').first():
-            if not OLAEvent.query.filter_by(case_id=case.id, event_type='ola_orange').first():
-                _ola_log_and_notify(case, 'ola_orange',
-                    f'OLA warning at {elapsed:.2f} business hours ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-            if not OLAEvent.query.filter_by(case_id=case.id, event_type='ola_yellow').first():
-                _ola_log_and_notify(case, 'ola_yellow',
-                    f'OLA approaching at {elapsed:.2f} business hours ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-            _ola_log_and_notify(case, 'ola_red',
-                f'OLA breached at {elapsed:.2f} business hours ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-    elif color == 'orange':
-        if not OLAEvent.query.filter_by(case_id=case.id, event_type='ola_orange').first():
-            if not OLAEvent.query.filter_by(case_id=case.id, event_type='ola_yellow').first():
-                _ola_log_and_notify(case, 'ola_yellow',
-                    f'OLA approaching at {elapsed:.2f} business hours ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-            _ola_log_and_notify(case, 'ola_orange',
-                f'OLA warning at {elapsed:.2f} business hours ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-    elif color == 'yellow':
-        if not OLAEvent.query.filter_by(case_id=case.id, event_type='ola_yellow').first():
-            _ola_log_and_notify(case, 'ola_yellow',
-                f'OLA approaching at {elapsed:.2f} business hours ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
+    _catch_up_events(case, color, elapsed)
 
     case.ola_status = color
     return color

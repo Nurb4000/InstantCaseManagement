@@ -114,6 +114,29 @@ def _log_and_notify(case, event_type, details):
     notify_escalation(case, label, details)
 
 
+# SLA escalation thresholds, lowest -> highest severity.
+SLA_LEVELS = ('yellow', 'orange', 'red')
+
+
+def _sla_details(level, pct):
+    stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    verb = {'yellow': 'approaching', 'orange': 'warning', 'red': 'breached'}[level]
+    return f'SLA {verb} at {pct:.1f}% ({stamp} UTC)'
+
+
+def _catch_up_events(case, color, pct):
+    """Q7: backfill any missing SLA milestone events up to ``color``."""
+    from app.escalation import log_threshold_catchup
+
+    def has_event(key):
+        return bool(SLAEvent.query.filter_by(case_id=case.id, event_type=f'sla_{key}').first())
+
+    def log_and_notify(key):
+        _log_and_notify(case, f'sla_{key}', _sla_details(key, pct))
+
+    log_threshold_catchup(SLA_LEVELS, color, has_event, log_and_notify)
+
+
 def update_sla(case):
     if case.status == 'resolved':
         case.sla_status = None
@@ -134,28 +157,7 @@ def update_sla(case):
         return None
 
     color = get_sla_color(pct)
-
-    if color == 'red':
-        if not SLAEvent.query.filter_by(case_id=case.id, event_type='sla_red').first():
-            if not SLAEvent.query.filter_by(case_id=case.id, event_type='sla_orange').first():
-                _log_and_notify(case, 'sla_orange',
-                    f'SLA warning at {pct:.1f}% ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-            if not SLAEvent.query.filter_by(case_id=case.id, event_type='sla_yellow').first():
-                _log_and_notify(case, 'sla_yellow',
-                    f'SLA approaching at {pct:.1f}% ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-            _log_and_notify(case, 'sla_red',
-                f'SLA breached at {pct:.1f}% ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-    elif color == 'orange':
-        if not SLAEvent.query.filter_by(case_id=case.id, event_type='sla_orange').first():
-            if not SLAEvent.query.filter_by(case_id=case.id, event_type='sla_yellow').first():
-                _log_and_notify(case, 'sla_yellow',
-                    f'SLA approaching at {pct:.1f}% ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-            _log_and_notify(case, 'sla_orange',
-                f'SLA warning at {pct:.1f}% ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
-    elif color == 'yellow':
-        if not SLAEvent.query.filter_by(case_id=case.id, event_type='sla_yellow').first():
-            _log_and_notify(case, 'sla_yellow',
-                f'SLA approaching at {pct:.1f}% ({datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC)')
+    _catch_up_events(case, color, pct)
 
     case.sla_status = color
     return color
