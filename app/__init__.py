@@ -233,6 +233,28 @@ def create_app(testing=False):
             replace_existing=True,
             misfire_grace_time=3600,
         )
+        app.scheduler = scheduler  # exposed for introspection/test teardown
         scheduler.start()
+
+        # Q3: stop the scheduler cleanly on process stop (server reload /
+        # supervisor SIGTERM) instead of leaving it running until the OS reaps
+        # the process. Signal handlers can only be installed from the main
+        # thread, and must not clobber pytest's own signal handling during the
+        # test session — hence the guard below.
+        import signal
+        import sys
+
+        def _handle_process_stop(signum, frame):
+            scheduler.shutdown(wait=False)
+            raise SystemExit(0)
+
+        if 'pytest' not in sys.modules:
+            for _sig in (signal.SIGTERM, signal.SIGINT):
+                try:
+                    signal.signal(_sig, _handle_process_stop)
+                except ValueError:
+                    # Not running in the main thread (e.g. a worker thread);
+                    # signal wiring is skipped rather than failing startup.
+                    pass
 
     return app
