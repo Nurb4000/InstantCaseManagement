@@ -2,6 +2,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 import csv
+from difflib import SequenceMatcher
 from io import StringIO
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, Response, abort
 from flask_login import login_required, current_user
@@ -73,6 +74,63 @@ def _date_filter(query, date_from, date_to):
 def _live(query):
     """F5: exclude soft-deleted cases from a Case query."""
     return query.filter(Case.deleted_at.is_(None))
+
+
+# F6: near-duplicate detection. A case is treated as a duplicate when its title
+# (or description) is both character-similar *and* shares most of its words with
+# an existing active case. Requiring both signals stops two honest false
+# positives: titles that share a long prefix but differ in one token
+# ("Imported One" vs "Imported Two", "Quarterly Report Q1" vs "Q2") score high on
+# character similarity yet have low word overlap, so they are correctly allowed.
+_F6_TITLE_RATIO = 0.85
+_F6_TITLE_JACCARD = 0.6
+_F6_DESC_RATIO = 0.9
+_F6_DESC_JACCARD = 0.5
+
+
+def _norm_text(value):
+    """Lowercase and collapse whitespace for stable string comparison."""
+    return ' '.join((value or '').lower().split())
+
+
+def _similarity(a, b):
+    """Similarity ratio between two normalized strings (1.0 == identical)."""
+    if not a and not b:
+        return 1.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _jaccard(a, b):
+    """Fraction of shared tokens between two normalized strings (1.0 == identical)."""
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    x, y = set(a.split()), set(b.split())
+    return len(x & y) / float(len(x | y))
+
+
+def _looks_duplicate(a_norm, b_norm, ratio_threshold, jaccard_threshold):
+    """True when two normalized strings are near-duplicates under both signals."""
+    return (_similarity(a_norm, b_norm) >= ratio_threshold
+            and _jaccard(a_norm, b_norm) >= jaccard_threshold)
+
+
+def _find_duplicate_case(title, description):
+    """Return the first active (non-deleted) case that is a near-duplicate of the
+    given title/description, or None. Checked before commit so fresh duplicates
+    are caught as they are created (works for both single submit and bulk import).
+    """
+    n_title = _norm_text(title)
+    n_desc = _norm_text(description)
+    for case in _live(Case.query).all():
+        c_title = _norm_text(case.title)
+        if n_title and _looks_duplicate(n_title, c_title, _F6_TITLE_RATIO, _F6_TITLE_JACCARD):
+            return case
+        n_desc_existing = _norm_text(case.description or '')
+        if n_desc and n_desc_existing and _looks_duplicate(n_desc, n_desc_existing, _F6_DESC_RATIO, _F6_DESC_JACCARD):
+            return case
+    return None
 
 
 def _load_case(case_id):
@@ -338,6 +396,15 @@ def submit_case():
     if not form.submitted_for.data:
         form.submitted_for.data = current_user.username
     if form.validate_on_submit():
+        # F6: block near-duplicate submissions; point the user at the existing case.
+        dup = _find_duplicate_case(form.title.data, form.description.data)
+        if dup is not None:
+            flash(
+                f'A nearly identical case already exists — "{dup.title}" (#{dup.id}). '
+                f'Review it instead of creating a duplicate.',
+                'error',
+            )
+            return render_template('submit_case.html', form=form)
         triage_group = Group.query.filter_by(name='Triage').first()
         case = Case(
             title=form.title.data,
@@ -945,6 +1012,13 @@ def import_cases():
         if not title or not description:
             skipped += 1
             errors.append(f'Line {idx}: Title and Description are required')
+            continue
+
+        # F6: skip rows that duplicate an existing (or earlier in this import) case.
+        dup = _find_duplicate_case(title, description)
+        if dup is not None:
+            skipped += 1
+            errors.append(f'Line {idx}: near-duplicate of existing case #{dup.id} ("{dup.title}") — skipped')
             continue
 
         submitter = _resolve_user(row.get('Submitted By'))
