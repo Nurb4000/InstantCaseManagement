@@ -1,7 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from app import db
 from app.models import OLAEvent, Group
 from app.email import notify_escalation
+from app.business_hours import group_business_hours_elapsed as _group_business_hours_elapsed
 
 
 def _get_thresholds(group):
@@ -25,31 +26,8 @@ def get_ola_color(elapsed_hours, group=None):
 
 
 def get_business_hours_elapsed(start, now, group):
-    if start is None or now is None or now <= start:
-        return 0.0
-
-    bh_start = group.business_hours_start if group and group.business_hours_start is not None else 6
-    bh_end = group.business_hours_end if group and group.business_hours_end is not None else 18
-    bh_days = set(group.business_hours_days.split(',')) if group and group.business_hours_days else {'Mon', 'Tue', 'Wed', 'Thu', 'Fri'}
-
-    total = 0.0
-    cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    while cursor.date() <= now.date():
-        day_name = cursor.strftime('%a')
-        if day_name in bh_days:
-            day_open = cursor.replace(hour=bh_start)
-            day_close = cursor.replace(hour=bh_end)
-
-            interval_start = max(start, day_open) if cursor.date() == start.date() else day_open
-            interval_end = min(now, day_close) if cursor.date() == now.date() else day_close
-
-            if interval_end > interval_start:
-                total += (interval_end - interval_start).total_seconds() / 3600
-
-        cursor += timedelta(days=1)
-
-    return total
+    # Q5: business-hours math delegated to app.business_hours (month-granular).
+    return _group_business_hours_elapsed(start, now, group)
 
 
 def _get_ola_group(case):

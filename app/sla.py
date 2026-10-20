@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from app import db
 from app.models import SLAEvent, OrgSetting, CaseState, CaseType
 from app.email import notify_escalation
+from app.business_hours import org_business_hours_elapsed as _org_business_hours_elapsed
 
 YELLOW_PCT = 70
 ORANGE_PCT = 80
@@ -28,32 +29,8 @@ def get_sla_color(pct):
 
 
 def get_org_business_hours_elapsed(start, end):
-    if start is None or end is None or end <= start:
-        return 0.0
-
-    org = OrgSetting.get()
-    bh_start = org.business_hours_start or 6
-    bh_end = org.business_hours_end or 18
-    bh_days = set(org.business_hours_days.split(',')) if org.business_hours_days else {'Mon', 'Tue', 'Wed', 'Thu', 'Fri'}
-
-    total = 0.0
-    cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    while cursor.date() <= end.date():
-        day_name = cursor.strftime('%a')
-        if day_name in bh_days:
-            day_open = cursor.replace(hour=bh_start)
-            day_close = cursor.replace(hour=bh_end)
-
-            interval_start = max(start, day_open) if cursor.date() == start.date() else day_open
-            interval_end = min(end, day_close) if cursor.date() == end.date() else day_close
-
-            if interval_end > interval_start:
-                total += (interval_end - interval_start).total_seconds() / 3600
-
-        cursor += timedelta(days=1)
-
-    return total
+    # Q5: business-hours math delegated to app.business_hours (month-granular).
+    return _org_business_hours_elapsed(start, end)
 
 
 def _get_case_type_sla_hours(case):
