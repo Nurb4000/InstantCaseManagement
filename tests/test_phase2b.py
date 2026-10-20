@@ -156,7 +156,7 @@ def test_registration_enabled_by_default(app, client, monkeypatch):
 # Q2 — Flask-Migrate schema bootstrap
 # ---------------------------------------------------------------------------
 
-HEAD_REVISION = '428db4770069'  # add user force_password_reset flag (F3); keep in sync with migrations/versions/
+HEAD_REVISION = '2ee4d3b51fff'  # add case priority column (F4); keep in sync with migrations/versions/
 
 
 def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):

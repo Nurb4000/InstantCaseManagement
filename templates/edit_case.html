@@ -45,6 +45,13 @@
                                 <div class="invalid-feedback d-block">{{ error }}</div>
                             {% endfor %}
                         </div>
+                        <div class="col-md-4 mb-3">
+                            {{ form.priority.label(class="form-label") }}
+                            {{ form.priority(class="form-select") }}
+                            {% for error in form.priority.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
                         {% if current_user.is_staff %}
                         <div class="col-md-4 mb-3">
                             {{ form.state_id.label(class="form-label") }}

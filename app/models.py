@@ -150,6 +150,39 @@ class Case(db.Model):
     sla_total_paused_seconds = db.Column(db.Integer, default=0)
     ola_status = db.Column(db.String(20), nullable=True)
     sla_status = db.Column(db.String(20), nullable=True)
+    # F4: P1-P5 triage priority (P1 highest). NULL for cases created before this
+    # field existed; new cases default to P3 (Medium) at submit time.
+    priority = db.Column(db.String(4), nullable=True)
+
+    # F4: triage priority levels, ordered highest -> lowest for sorting/labels.
+    PRIORITY_LEVELS = ['P1', 'P2', 'P3', 'P4', 'P5']
+    PRIORITY_LABELS = {
+        'P1': 'Highest',
+        'P2': 'High',
+        'P3': 'Medium',
+        'P4': 'Low',
+        'P5': 'Lowest',
+    }
+    PRIORITY_DEFAULT = 'P3'
+
+    @property
+    def priority_label(self):
+        return self.PRIORITY_LABELS.get(self.priority, '')
+
+    # F4: Bootstrap severity mapped to each triage level for badge styling.
+    PRIORITY_BADGE = {'P1': 'danger', 'P2': 'warning', 'P3': 'info', 'P4': 'secondary', 'P5': 'secondary'}
+
+    @property
+    def priority_badge_class(self):
+        return self.PRIORITY_BADGE.get(self.priority, 'secondary')
+
+    def priority_sort_key(self):
+        """Lower index sorts first (P1 before P5); unknown/NULL sort last."""
+        try:
+            return (0, self.PRIORITY_LEVELS.index(self.priority))
+        except (ValueError, TypeError):
+            return (1, 0)
+
     # F5: soft-delete marker. Rows with a non-null deleted_at are hidden from
     # every normal query and purged from the DB once past the retention window.
     deleted_at = db.Column(db.DateTime, nullable=True)

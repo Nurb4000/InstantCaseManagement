@@ -74,6 +74,7 @@
                             <th>Title</th>
                             <th>Type</th>
                             <th>Category</th>
+                            <th>Priority</th>
                             <th>State</th>
                             <th>Submitted By</th>
                             <th>Submitted For</th>
@@ -106,6 +107,7 @@
                             <td>{{ case.title }}</td>
                             <td>{{ case.case_type }}</td>
                             <td>{{ case.category }}</td>
+                            <td>{% if case.priority %}<span class="badge bg-{{ case.priority_badge_class }}">{{ case.priority_label }}</span>{% else %}<span class="text-muted">–</span>{% endif %}</td>
                             <td>{{ case.state.name if case.state else '-' }}</td>
                             <td>{{ case.user.username }}</td>
                             <td>{{ case.submitted_for or '-' }}</td>
@@ -137,6 +139,7 @@
                             <th>Title</th>
                             <th>Type</th>
                             <th>Category</th>
+                            <th>Priority</th>
                             <th>State</th>
                             <th>Submitted By</th>
                             <th>Submitted For</th>
@@ -170,6 +173,7 @@
                             <td>{{ case.title }}</td>
                             <td>{{ case.case_type }}</td>
                             <td>{{ case.category }}</td>
+                            <td>{% if case.priority %}<span class="badge bg-{{ case.priority_badge_class }}">{{ case.priority_label }}</span>{% else %}<span class="text-muted">–</span>{% endif %}</td>
                             <td>{{ case.state.name if case.state else '-' }}</td>
                             <td>{{ case.user.username }}</td>
                             <td>{{ case.submitted_for or '-' }}</td>

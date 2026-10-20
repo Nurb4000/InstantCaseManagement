@@ -208,6 +208,9 @@ def all_cases():
         query = query.filter(Case.status != 'resolved')
     query = _date_filter(_search_filter(query, q, field), date_from, date_to)
     cases = query.order_by(Case.created_date.desc()).all()
+    # F4: triage view surfaces highest priority first; stable sort keeps the
+    # recency ordering within each priority level.
+    cases.sort(key=lambda c: c.priority_sort_key())
     for case in cases:
         update_ola(case)
         update_sla(case)
@@ -324,6 +327,8 @@ def submit_case():
     form = CaseForm()
     form.case_type.choices = [('', 'Select a type')] + [(t.name, t.name) for t in CaseType.query.order_by(CaseType.sort_order).all()]
     form.category.choices = [('', 'Select a category')] + [(c.name, c.name) for c in CaseCategory.query.filter_by(hidden=False).order_by(CaseCategory.sort_order).all()]
+    # F4: offer the P1-P5 triage levels; default new cases to Medium (P3).
+    form.priority.choices = [('', 'Not set')] + [(p, Case.PRIORITY_LABELS[p]) for p in Case.PRIORITY_LEVELS]
     new_state = CaseState.query.filter_by(name='New').first()
     if current_user.is_staff:
         states = CaseState.query.filter_by(hidden=False).order_by(CaseState.sort_order).all()
@@ -343,6 +348,8 @@ def submit_case():
             assignment_group_id=triage_group.id if triage_group else None,
             state_id=form.state_id.data if current_user.is_staff and form.state_id.data else (new_state.id if new_state else None),
             submitted_for=form.submitted_for.data,
+            # F4: default to Medium (P3) when not chosen or invalid.
+            priority=form.priority.data if form.priority.data in Case.PRIORITY_LEVELS else Case.PRIORITY_DEFAULT,
         )
         db.session.add(case)
         db.session.commit()
@@ -371,6 +378,8 @@ def edit_case(case_id):
     form = EditCaseForm(obj=case)
     form.case_type.choices = [('', 'Select a type')] + [(t.name, t.name) for t in CaseType.query.filter_by(hidden=False).order_by(CaseType.sort_order).all()]
     form.category.choices = [('', 'Select a category')] + [(c.name, c.name) for c in CaseCategory.query.filter_by(hidden=False).order_by(CaseCategory.sort_order).all()]
+    # F4: pre-select the current priority and offer the P1-P5 levels.
+    form.priority.choices = [('', 'Not set')] + [(p, Case.PRIORITY_LABELS[p]) for p in Case.PRIORITY_LEVELS]
     if current_user.is_staff:
         states = CaseState.query.filter_by(hidden=False).order_by(CaseState.sort_order).all()
         form.state_id.choices = [(s.id, s.name) for s in states]
@@ -386,6 +395,10 @@ def edit_case(case_id):
         case.case_type = form.case_type.data
         case.category = form.category.data
         case.submitted_for = form.submitted_for.data
+        # F4: update priority only when a valid level is chosen; otherwise leave
+        # the existing value untouched.
+        if form.priority.data in Case.PRIORITY_LEVELS:
+            case.priority = form.priority.data
 
         state_changed = False
         if current_user.is_staff:

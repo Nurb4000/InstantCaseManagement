@@ -33,6 +33,14 @@
                     <span>Category</span>
                     <span>{{ case.category }}</span>
                 </li>
+                <li class="list-group-item bg-dark border-secondary d-flex justify-content-between align-items-center">
+                    <span>Priority</span>
+                    {% if case.priority %}
+                        <span class="badge bg-{{ case.priority_badge_class }} fs-6">{{ case.priority_label or case.priority }}</span>
+                    {% else %}
+                        <span class="text-muted">Not set</span>
+                    {% endif %}
+                </li>
                 {% if case.assigned_to %}
                     <li class="list-group-item bg-dark border-secondary d-flex justify-content-between align-items-center">
                         <span>Assigned To</span>

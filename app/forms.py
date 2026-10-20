@@ -71,6 +71,8 @@ class CaseForm(FlaskForm):
     category = SelectField('Category', validators=[DataRequired()])
     state_id = SelectField('State', coerce=int, validators=[Optional()])
     submitted_for = StringField('Submitted For', validators=[Optional(), Length(max=200)])
+    # F4: optional triage priority; defaulted to P3 in the submit route.
+    priority = SelectField('Priority', coerce=str, validators=[Optional()], choices=[])
 
 
 class EditCaseForm(FlaskForm):
@@ -81,6 +83,8 @@ class EditCaseForm(FlaskForm):
     state_id = SelectField('State', coerce=int, validators=[Optional()])
     submitted_for = StringField('Submitted For', validators=[Optional(), Length(max=200)])
     state_change_reason = TextAreaField('Reason for State Change', validators=[Optional()])
+    # F4: allow re-prioritising a case during editing.
+    priority = SelectField('Priority', coerce=str, validators=[Optional()], choices=[])
 
 
 class CommentForm(FlaskForm):

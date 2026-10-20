@@ -43,6 +43,7 @@
                             <p class="card-text">{{ case.description[:100] }}{% if case.description|length > 100 %}...{% endif %}</p>
                             <div class="d-flex justify-content-between align-items-center">
                                 <span class="badge bg-secondary">{{ case.category }}</span>
+                                {% if case.priority %}<span class="badge bg-{{ case.priority_badge_class }} me-1">{{ case.priority_label }}</span>{% endif %}
                                 <div>
                                     {% if case.state %}<span class="badge bg-secondary me-1">{{ case.state.name }}</span>{% endif %}
                                     <span class="status-{{ case.status }}">{{ case.status.title() }}</span>
