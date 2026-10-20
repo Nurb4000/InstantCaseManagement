@@ -23,6 +23,15 @@
                             <div class="invalid-feedback d-block">{{ error }}</div>
                         {% endfor %}
                     </div>
+                    {% if captcha_challenge %}
+                    <div class="mb-3">
+                        <label class="form-label">Security check</label>
+                        <div class="input-group">
+                            <span class="input-group-text">{{ captcha_challenge }}</span>
+                            {{ form.captcha(class="form-control", autocomplete="off", placeholder="Your answer") }}
+                        </div>
+                    </div>
+                    {% endif %}
                     <button type="submit" class="btn btn-primary w-100">Login</button>
                 </form>
                 <div class="text-center mt-3">

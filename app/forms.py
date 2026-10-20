@@ -47,6 +47,9 @@ def password_complexity(form, field):
 class LoginForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired()])
     password = PasswordField('Password', validators=[DataRequired()])
+    # Optional progressive-CAPTCHA field; only rendered/validated when the S4
+    # guard has surfaced a challenge for the request's IP.
+    captcha = StringField('CAPTCHA', validators=[Optional()])
 
 
 class RegisterForm(FlaskForm):

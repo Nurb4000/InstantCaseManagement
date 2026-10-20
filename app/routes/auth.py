@@ -26,20 +26,33 @@ def login():
     if auth_security.ip_in_hard_cap(ip):
         auth_security.record_login_attempt(None, ip, success=False)
         flash('Too many failed attempts. Please try again later.', 'warning')
-        return render_template('login.html', form=LoginForm())
+        return render_template('login.html', form=LoginForm(), captcha_challenge=None)
     auth_security.apply_login_delay(ip)
+
+    # S4 follow-up: once an IP accrues enough failures, require a CAPTCHA.
+    challenge = None
+    if auth_security.captcha_required_for_ip(ip):
+        challenge = auth_security.ensure_captcha_challenge()
 
     form = LoginForm()
     if form.validate_on_submit():
         username = form.username.data
+        if challenge is not None:
+            provided = request.form.get('captcha', '').strip()
+            if not auth_security.captcha_matches(provided):
+                auth_security.record_login_attempt(username, ip, success=False)
+                flash('Security check failed. Please try again.', 'error')
+                challenge = auth_security.regenerate_captcha_challenge()
+                return render_template('login.html', form=form, captcha_challenge=challenge)
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(form.password.data):
             auth_security.record_login_attempt(username, ip, success=True)
+            auth_security.clear_captcha_for_session()
             login_user(user)
             return redirect(url_for('cases.dashboard'))
         auth_security.record_login_attempt(username, ip, success=False)
         flash('Invalid username or password')
-    return render_template('login.html', form=form)
+    return render_template('login.html', form=form, captcha_challenge=challenge)
 
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
