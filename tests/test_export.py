@@ -44,3 +44,20 @@ def test_export_all_csv_with_null_group_and_state(app, staff_client):
     assert r.status_code == 200
     rows = list(csv.reader(io.StringIO(r.get_data(as_text=True))))
     assert len(rows) == 2
+
+
+def test_export_assigned_csv_with_null_group_and_state(app, staff_client):
+    # B1: a case with NULL group/state that is assigned to the current user must
+    # still export cleanly (previously an unguarded relationship dereference
+    # would raise AttributeError -> 500).
+    from app import db as sql_db
+    from app.models import Case, User
+    with app.app_context():
+        u = User.query.filter_by(username='staffadmin').first()
+        cid = _own_case(app, u.id, assigned_to_id=u.id)
+    r = staff_client.get('/export/assigned')
+    assert r.status_code == 200
+    rows = list(csv.reader(io.StringIO(r.get_data(as_text=True))))
+    assert len(rows) == 2
+    # Group (col 6) and State (col 7) render empty for the null-group/state case.
+    assert rows[1][6] == '' and rows[1][7] == ''
