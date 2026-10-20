@@ -94,7 +94,7 @@
             <tr>
                 <td class="nowrap"><input type="checkbox" name="case_ids" value="{{ case.id }}" form="bulkForm" class="row-select"></td>
                 <td>{{ case.id }}</td>
-                <td class="nowrap">{{ case.created_date.strftime('%Y-%m-%d') }}</td>
+                <td class="nowrap">{{ case.created_date | local_fmt('%Y-%m-%d') }}</td>
                 <td>{{ case.title }}</td>
                 <td>{{ case.case_type }}</td>
                 <td>{{ case.category }}</td>

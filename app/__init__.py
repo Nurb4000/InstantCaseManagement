@@ -181,14 +181,28 @@ def create_app(testing=False):
     app.register_blueprint(chat_bp)
     app.register_blueprint(reports_bp)
 
+    # ------------------------------------------------------------------
+    # Timezone policy (see Q4 in findings/Case-Tool-Findings.md).
+    #
+    # Single consistent rule: datetimes are *stored* as naive UTC and are only
+    # ever *converted to a wall-clock label* in exactly one place — this
+    # `local_fmt` filter. Everything that displays a date/time in a template
+    # must go through it; nothing should call .strftime() on a stored datetime
+    # directly (that would print the raw UTC label as if it were local time).
+    #
+    # Conversion is DST-safe: we attach UTC to a naive value (or trust an
+    # already-aware one) and let astimezone() do the wall-clock math, so a
+    # switch in daylight-saving does not shift the displayed hour.
+    # ------------------------------------------------------------------
     @app.template_filter('local_fmt')
     def to_local_fmt(dt, fmt='%Y-%m-%d %H:%M'):
         if dt is None:
             return ''
         from datetime import timezone
-        utc_dt = dt.replace(tzinfo=timezone.utc)
-        local_dt = utc_dt.astimezone()
-        return local_dt.strftime(fmt)
+        # Naive datetimes are stored as UTC; aware ones are used as-is.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime(fmt)
 
     from app.routes.reports import _format_hours
     @app.template_filter('format_hours')
