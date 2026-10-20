@@ -237,10 +237,13 @@ def reset_password(user_id):
     form = AdminPasswordResetForm()
     if form.validate_on_submit():
         user.set_password(form.new_password.data)
+        # F3: force a password change on next login instead of emailing a
+        # plaintext credential. Cleared in auth.change_password once set.
+        user.force_password_reset = True
         db.session.commit()
         log_audit('user_reset_password', target_type='User', target_id=user.id,
-                  details=f'username="{user.username}"')
-        flash(f'Password reset for {user.username}')
+                  details=f'username="{user.username}" force_reset=True')
+        flash(f'Password reset for {user.username}; they must change it on next login.')
         return redirect(url_for('admin.view_user', user_id=user_id))
     return render_template('admin/reset_password.html', form=form, user=user)
 

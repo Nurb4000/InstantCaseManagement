@@ -100,6 +100,8 @@ def change_password():
             flash('Current password is incorrect')
             return render_template('change_password.html', form=form)
         current_user.set_password(form.new_password.data)
+        # F3: clearing an admin-forced reset lets the user proceed normally.
+        current_user.force_password_reset = False
         db.session.commit()
         flash('Password changed successfully')
         return redirect(url_for('cases.dashboard'))

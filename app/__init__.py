@@ -181,6 +181,20 @@ def create_app(testing=False):
     app.register_blueprint(chat_bp)
     app.register_blueprint(reports_bp)
 
+    # F3: force users whose admin-reset password hasn't been changed yet to set a
+    # new one before they can use the app. Registered at app scope so it applies
+    # to every route (not just auth's), but skips the change-password page itself
+    # and static assets to avoid a redirect loop.
+    @app.before_request
+    def _enforce_forced_password_reset():
+        from flask import request, redirect, url_for
+        from flask_login import current_user
+        if (current_user.is_authenticated
+                and getattr(current_user, 'force_password_reset', False)
+                and request.endpoint != 'auth.change_password'
+                and not request.path.startswith('/static')):
+            return redirect(url_for('auth.change_password'))
+
     # ------------------------------------------------------------------
     # Timezone policy (see Q4 in findings/Case-Tool-Findings.md).
     #

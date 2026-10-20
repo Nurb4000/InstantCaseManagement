@@ -17,6 +17,10 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     is_staff = db.Column(db.Boolean, default=False)
     is_admin = db.Column(db.Boolean, default=False)
+    # F3: set by admin password reset; forces the user to choose a new password
+    # on next login (we never email a plaintext credential). Cleared once they
+    # change their password via /change_password.
+    force_password_reset = db.Column(db.Boolean, default=False)
 
     groups = db.relationship('Group', secondary=user_groups, back_populates='users', lazy='select')
     managed_group = db.relationship('Group', back_populates='manager', lazy='select', uselist=False, foreign_keys='Group.manager_id')
