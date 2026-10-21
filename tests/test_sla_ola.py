@@ -97,3 +97,125 @@ def test_stuck_pause_auto_resume(app, monkeypatch):
         assert c.sla_paused_at is None, "stuck pause should have been resumed"
         events = SLAEvent.query.filter_by(case_id=cid, event_type='sla_resumed').all()
         assert events and 'auto-resumed' in (events[-1].details or '')
+
+
+# ---------------------------------------------------------------------------
+# F8: SLA/OLA remaining-time countdown UI
+# ---------------------------------------------------------------------------
+
+
+def _set_case_type_target(app, name='Technical', sla_hours=48.0):
+    """Give a case type a real SLA target (seed data creates types with 0h)."""
+    from app import db as sql_db
+    from app.models import CaseType
+    with app.app_context():
+        ct = CaseType.query.filter_by(name=name).first()
+        if ct is None:
+            ct = CaseType(name=name, sort_order=99)
+            sql_db.session.add(ct)
+        ct.sla_hours = sla_hours
+        sql_db.session.commit()
+
+
+def test_get_sla_remaining_hours_subtracts_elapsed(app, monkeypatch):
+    _set_case_type_target(app)
+    from app.sla import get_sla_remaining_hours
+    monkeypatch.setattr('app.sla.get_org_business_hours_elapsed', lambda start, end: 12.0)
+    cid = _make_case(app)  # Technical -> 48h target
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        c.sla_started_at = datetime.utcnow() - timedelta(hours=1)
+        sql_db.session.commit()
+        assert get_sla_remaining_hours(c) == 36.0
+
+
+def test_get_sla_remaining_hours_clamps_at_zero(app, monkeypatch):
+    _set_case_type_target(app)
+    from app.sla import get_sla_remaining_hours
+    monkeypatch.setattr('app.sla.get_org_business_hours_elapsed', lambda start, end: 60.0)
+    cid = _make_case(app)
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        c.sla_started_at = datetime.utcnow() - timedelta(hours=1)
+        sql_db.session.commit()
+        # Breached: remaining clamps to 0 rather than going negative.
+        assert get_sla_remaining_hours(c) == 0.0
+
+
+def test_get_sla_remaining_hours_none_without_target(app):
+    from app.sla import get_sla_remaining_hours
+    cid = _make_case(app, case_type='Nonexistent')
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        c.sla_started_at = datetime.utcnow() - timedelta(hours=1)
+        sql_db.session.commit()
+        assert get_sla_remaining_hours(c) is None
+
+
+def test_get_sla_remaining_hours_none_when_resolved(app, monkeypatch):
+    _set_case_type_target(app)
+    from app.sla import get_sla_remaining_hours
+    monkeypatch.setattr('app.sla.get_org_business_hours_elapsed', lambda start, end: 1.0)
+    cid = _make_case(app)
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        c.status = 'resolved'
+        sql_db.session.commit()
+        assert get_sla_remaining_hours(c) is None
+
+
+def test_get_ola_remaining_hours(app, monkeypatch):
+    from app.ola import get_ola_remaining_hours
+    monkeypatch.setattr('app.ola.get_business_hours_elapsed', lambda start, now, group: 0.5)
+    cid = _make_case(app)  # Support group -> ola_hours default 2.0
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        c.ola_started_at = datetime.utcnow() - timedelta(hours=1)
+        sql_db.session.commit()
+        assert get_ola_remaining_hours(c) == 1.5
+
+
+def test_get_ola_remaining_hours_none_when_assigned(app, monkeypatch):
+    from app.ola import get_ola_remaining_hours
+    monkeypatch.setattr('app.ola.get_business_hours_elapsed', lambda start, now, group: 0.5)
+    cid = _make_case(app)
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        # Assigning the case stops OLA, so there is no remaining countdown.
+        c.assigned_to_id = c.user_id
+        c.ola_started_at = datetime.utcnow()
+        sql_db.session.commit()
+        assert get_ola_remaining_hours(c) is None
+
+
+def test_format_remaining_filter(app):
+    fmt = app.jinja_env.filters['format_remaining']
+    assert fmt(None) == 'N/A'
+    assert fmt(0.0) == 'Overdue'
+    assert fmt(1.5) == '1h 30m'
+    assert fmt(47.0) == '47h 00m'
+    assert fmt(0.001) == '0h 00m'    # under a minute rounds down to 0m
+    assert fmt(1.999) == '2h 00m'    # 59.94m rounds up into the next hour
+
+
+def test_view_case_shows_countdown(app, staff_client, monkeypatch):
+    _set_case_type_target(app)
+    cid = _make_case(app)
+    with app.app_context():
+        from app import db as sql_db
+        c = Case.query.get(cid)
+        c.sla_started_at = datetime.utcnow() - timedelta(hours=12)  # 12 of 48h used
+        sql_db.session.commit()
+    monkeypatch.setattr('app.sla.get_org_business_hours_elapsed', lambda start, end: 12.0)
+
+    r = staff_client.get(f'/case/{cid}')
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    # 48h target - 12h used -> 36h 00m remaining, rendered next to the SLA row.
+    assert '36h 00m remaining' in body

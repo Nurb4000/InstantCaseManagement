@@ -11,8 +11,8 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import Case, Comment, Attachment, User, Group, CaseState, CaseType, CaseCategory, OLAEvent, Notification
 from app.forms import CaseForm, CommentForm, AssignForm, EditCaseForm
-from app.ola import start_ola, stop_ola, restart_ola, update_ola, get_ola_elapsed
-from app.sla import start_sla, stop_sla, pause_sla, resume_sla, recalculate_sla, update_sla, get_sla_color, get_sla_pct
+from app.ola import start_ola, stop_ola, restart_ola, update_ola, get_ola_elapsed, get_ola_remaining_hours
+from app.sla import start_sla, stop_sla, pause_sla, resume_sla, recalculate_sla, update_sla, get_sla_color, get_sla_pct, get_sla_remaining_hours
 from app.email import notify_group_assignment, notify_user_assignment, notify_comment_added, notify_resolution, send_email
 from app.audit import log_audit
 
@@ -593,15 +593,20 @@ def view_case(case_id):
     ola_elapsed = get_ola_elapsed(case)
     sla_color = update_sla(case)
     sla_pct = get_sla_pct(case)
+    # F8: remaining business hours for the SLA/OLA countdown UI.
+    ola_remaining = get_ola_remaining_hours(case)
+    sla_remaining = get_sla_remaining_hours(case)
 
     return render_template('view_case.html', case=case,
-                           comment_form=comment_form,
-                           assign_form=assign_form,
-                           all_groups=all_groups,
-                           ola_color=ola_color,
-                           ola_elapsed=ola_elapsed,
-                           sla_color=sla_color,
-                           sla_pct=sla_pct)
+                            comment_form=comment_form,
+                            assign_form=assign_form,
+                            all_groups=all_groups,
+                            ola_color=ola_color,
+                            ola_elapsed=ola_elapsed,
+                            ola_remaining=ola_remaining,
+                            sla_color=sla_color,
+                            sla_pct=sla_pct,
+                            sla_remaining=sla_remaining)
 
 
 @cases_bp.route('/case/<int:case_id>/comment', methods=['POST'])

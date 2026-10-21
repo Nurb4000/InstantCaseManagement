@@ -85,6 +85,18 @@ def get_sla_pct(case):
     return (elapsed / target) * 100
 
 
+def get_sla_remaining_hours(case):
+    """Business hours remaining until the SLA target is met.
+
+    Returns None when there is no SLA target or the case is resolved; otherwise
+    the non-negative difference between the target and elapsed business hours.
+    """
+    target = _get_case_type_sla_hours(case)
+    if not target or case.status == 'resolved':
+        return None
+    return max(0.0, target - get_sla_elapsed(case))
+
+
 def _log_and_notify(case, event_type, details):
     _log_sla_event(case, event_type, details=details)
     label = event_type.replace('sla_', 'SLA ').title()

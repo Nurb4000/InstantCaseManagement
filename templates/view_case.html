@@ -61,7 +61,12 @@
                             <span class="ms-1 text-capitalize">{{ ola_color }}</span>
                             {% if ola_elapsed > 0 %}
                                 <small class="text-muted ms-2">
-                                    ({{ '%.1f'|format(ola_elapsed) }} business hours)
+                                    ({{ '%.1f'|format(ola_elapsed) }} business hours used)
+                                </small>
+                            {% endif %}
+                            {% if ola_remaining is not none %}
+                                <small class="text-muted ms-2">
+                                    ({{ ola_remaining | format_remaining }} remaining)
                                 </small>
                             {% endif %}
                         </span>
@@ -76,6 +81,11 @@
                             {% if sla_pct is not none %}
                                 <small class="text-muted ms-2">
                                     ({{ '%.1f'|format(sla_pct) }}%)
+                                </small>
+                            {% endif %}
+                            {% if sla_remaining is not none %}
+                                <small class="text-muted ms-2">
+                                    ({{ sla_remaining | format_remaining }} remaining)
                                 </small>
                             {% endif %}
                         </span>

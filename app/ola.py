@@ -137,3 +137,19 @@ def get_ola_elapsed(case):
     if case.ola_started_at is None:
         return 0.0
     return _ola_elapsed(case)
+
+
+def get_ola_remaining_hours(case):
+    """Business hours remaining until the OLA target is met.
+
+    OLA only runs while the case is unassigned and unresolved, so returns None
+    once assigned or resolved. None is also returned when the group has no OLA
+    target.
+    """
+    if case.ola_started_at is None or case.status == 'resolved' or case.assigned_to_id is not None:
+        return None
+    group = _get_ola_group(case)
+    target = group.ola_hours if group and group.ola_hours else None
+    if not target:
+        return None
+    return max(0.0, target - _ola_elapsed(case))

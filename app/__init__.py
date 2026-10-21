@@ -223,6 +223,21 @@ def create_app(testing=False):
     def to_format_hours(hours):
         return _format_hours(hours)
 
+    # F8: format remaining business hours as "Xh Ym" (or "Overdue"/"N/A") for the
+    # SLA/OLA countdown shown in view_case.html.
+    @app.template_filter('format_remaining')
+    def to_format_remaining(hours):
+        if hours is None:
+            return 'N/A'
+        if hours <= 0:
+            return 'Overdue'
+        whole = int(hours // 1)
+        minutes = int(round((hours - whole) * 60))
+        if minutes == 60:  # rounding can push us into the next hour
+            whole += 1
+            minutes = 0
+        return f'{whole}h {minutes:02d}m'
+
     # F7: expose nav badge counts (unread notifications, unassigned cases) and a
     # short recent list for the inline dropdown. Kept cheap: one count query plus
     # one ordered query, only for authenticated users.
