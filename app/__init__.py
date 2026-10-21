@@ -223,6 +223,31 @@ def create_app(testing=False):
     def to_format_hours(hours):
         return _format_hours(hours)
 
+    # F7: expose nav badge counts (unread notifications, unassigned cases) and a
+    # short recent list for the inline dropdown. Kept cheap: one count query plus
+    # one ordered query, only for authenticated users.
+    @app.context_processor
+    def _nav_counts():
+        from flask_login import current_user
+        from app.routes.cases import unassigned_case_count
+        if not current_user.is_authenticated:
+            return {'unread_notification_count': 0, 'unassigned_case_count': 0,
+                    'recent_notifications': []}
+        from app.models import Notification
+        try:
+            unread = Notification.unread_count(current_user.id)
+            recent = (Notification.query
+                      .filter_by(recipient_id=current_user.id)
+                      .order_by(Notification.created_at.desc())
+                      .limit(5).all())
+        except Exception:
+            unread, recent = 0, []
+        return {
+            'unread_notification_count': unread,
+            'unassigned_case_count': unassigned_case_count(current_user) if current_user.is_staff else 0,
+            'recent_notifications': recent,
+        }
+
     # Q2: schema (migrations) and seed data are applied on the serve path only.
     # We skip both during `flask db ...` CLI invocations so the command itself
     # owns migration execution and we avoid nested upgrade()/stamp()/seed

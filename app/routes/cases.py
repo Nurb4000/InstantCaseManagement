@@ -9,7 +9,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from app import db
-from app.models import Case, Comment, Attachment, User, Group, CaseState, CaseType, CaseCategory, OLAEvent
+from app.models import Case, Comment, Attachment, User, Group, CaseState, CaseType, CaseCategory, OLAEvent, Notification
 from app.forms import CaseForm, CommentForm, AssignForm, EditCaseForm
 from app.ola import start_ola, stop_ola, restart_ola, update_ola, get_ola_elapsed
 from app.sla import start_sla, stop_sla, pause_sla, resume_sla, recalculate_sla, update_sla, get_sla_color, get_sla_pct
@@ -74,6 +74,23 @@ def _date_filter(query, date_from, date_to):
 def _live(query):
     """F5: exclude soft-deleted cases from a Case query."""
     return query.filter(Case.deleted_at.is_(None))
+
+
+def unassigned_case_count(user):
+    """F7: open, unassigned cases in the user's groups (excludes soft-deleted).
+
+    Drives the staff nav badge. Returns 0 for non-staff users.
+    """
+    if not user.is_staff:
+        return 0
+    group_ids = user_group_ids(user)
+    if not group_ids:
+        return 0
+    return _live(Case.query).filter(
+        Case.assignment_group_id.in_(group_ids),
+        Case.assigned_to_id.is_(None),
+        Case.status != 'resolved',
+    ).count()
 
 
 # F6: near-duplicate detection. A case is treated as a duplicate when its title
@@ -276,8 +293,41 @@ def all_cases():
     states = CaseState.query.filter_by(hidden=False).order_by(CaseState.sort_order).all()
     staff = User.query.filter_by(is_staff=True).order_by(User.username).all()
     return render_template('admin/cases.html', cases=cases, show_resolved=show_resolved,
-                           q=q, field=field, date_from=date_from, date_to=date_to,
-                           states=states, staff=staff)
+                            q=q, field=field, date_from=date_from, date_to=date_to,
+                            states=states, staff=staff)
+
+
+@cases_bp.route('/notifications')
+@login_required
+def notifications():
+    """F7: in-app notifications center. Staff/admin see assigned cases and SLA/
+    OLA breaches; end users see notifications about their own cases."""
+    page = request.args.get('page', 1, type=int)
+    q = Notification.query.filter_by(recipient_id=current_user.id)\
+        .order_by(Notification.created_at.desc()).paginate(
+        page=page, per_page=25, error_out=False)
+    return render_template('notifications.html', items=q.items, pagination=q)
+
+
+@cases_bp.route('/notifications/<int:notif_id>/read', methods=['POST'])
+@login_required
+def notification_read(notif_id):
+    notif = Notification.query.get_or_404(notif_id)
+    if notif.recipient_id != current_user.id:
+        flash('Access denied')
+        return redirect(url_for('cases.notifications'))
+    notif.is_read = True
+    db.session.commit()
+    return redirect(url_for('cases.notifications', page=request.args.get('page', 1, type=int)))
+
+
+@cases_bp.route('/notifications/read-all', methods=['POST'])
+@login_required
+def notifications_read_all():
+    Notification.query.filter_by(recipient_id=current_user.id, is_read=False).update({'is_read': True})
+    db.session.commit()
+    return redirect(url_for('cases.notifications'))
+
 
 
 def _csv_response(cases, filename):

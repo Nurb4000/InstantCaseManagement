@@ -89,6 +89,10 @@ def _log_and_notify(case, event_type, details):
     _log_sla_event(case, event_type, details=details)
     label = event_type.replace('sla_', 'SLA ').title()
     notify_escalation(case, label, details)
+    # F7: surface an in-app notification when the SLA target is actually breached.
+    if event_type == 'sla_red':
+        from app.email import _create_breach_notification
+        _create_breach_notification(case, 'sla_breach', label, details)
 
 
 # SLA escalation thresholds, lowest -> highest severity.

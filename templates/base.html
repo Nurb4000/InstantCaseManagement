@@ -210,6 +210,40 @@
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('cases.dashboard') }}">Dashboard</a>
                         </li>
+                        {% if current_user.is_staff and unassigned_case_count %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('cases.dashboard') }}">
+                                Unassigned
+                                <span class="badge badge-danger">{{ unassigned_case_count }}</span>
+                            </a>
+                        </li>
+                        {% endif %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-bell"></i>
+                                {% if unread_notification_count %}
+                                <span class="badge badge-danger">{{ unread_notification_count }}</span>
+                                {% endif %}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark" style="min-width: 280px;">
+                                <li class="dropdown-header">Notifications</li>
+                                {% if recent_notifications %}
+                                    {% for n in recent_notifications %}
+                                    <li>
+                                        <a class="dropdown-item {% if not n.is_read %}fw-bold{% endif %}"
+                                           href="{{ url_for('cases.view_case', case_id=n.case_id) if n.case_id else '#' }}">
+                                            <div>{{ n.title }}</div>
+                                            <small class="text-muted">{{ n.created_at | local_fmt('%Y-%m-%d %H:%M') }}</small>
+                                        </a>
+                                    </li>
+                                    {% endfor %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('cases.notifications') }}">View all notifications</a></li>
+                                {% else %}
+                                    <li><span class="dropdown-item-text text-muted">No notifications yet</span></li>
+                                {% endif %}
+                            </ul>
+                        </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('chat.chat_page') }}">Chat</a>
                         </li>

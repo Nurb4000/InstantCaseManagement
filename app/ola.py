@@ -44,6 +44,10 @@ def _ola_log_and_notify(case, event_type, details):
     _log_event(case, event_type, details=details)
     label = event_type.replace('ola_', 'OLA ').title()
     notify_escalation(case, label, details)
+    # F7: surface an in-app notification when the OLA target is actually breached.
+    if event_type == 'ola_red':
+        from app.email import _create_breach_notification
+        _create_breach_notification(case, 'ola_breach', label, details)
 
 
 # OLA escalation thresholds, lowest -> highest severity.

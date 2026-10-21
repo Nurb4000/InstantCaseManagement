@@ -2,7 +2,7 @@ import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
 from app import db
-from app.models import OrgSetting, EmailLog
+from app.models import OrgSetting, EmailLog, Notification
 from app import crypto
 
 
@@ -96,7 +96,54 @@ def notify_user_assignment(case, user):
         f'Case #{case.id} has been assigned to you.\n\n'
         f'{_case_summary(case)}'
     )
-    return _notify_user(user, subject, body, case_id=case.id)
+    sent = _notify_user(user, subject, body, case_id=case.id)
+    # F7: also surface an in-app notification so the assignee sees it on the
+    # dashboard/nav even if email is disabled or bounces.
+    _create_assignment_notification(case, user)
+    return sent
+
+
+def _create_assignment_notification(case, user):
+    """F7: record an in-app "case assigned" notification for ``user``."""
+    try:
+        db.session.add(Notification(
+            recipient_id=user.id,
+            case_id=case.id,
+            event_type='assigned',
+            title=f'Case #{case.id} assigned to you',
+            body=f'"{case.title}" has been assigned to you.',
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _create_breach_notification(case, event_type, title, details):
+    """F7: notify the staff who can act when a case breaches its SLA/OLA target.
+
+    Recipients: the assignee (if staff), else the assignment group's staff, else
+    all admins. This is broader than the escalation email (which goes only to the
+    assignee/manager) so unassigned breaching cases still reach willing staff.
+    """
+    from app.models import User
+    if case.assigned_to and case.assigned_to.is_staff:
+        recipients = [case.assigned_to]
+    elif case.assignment_group:
+        recipients = [u for u in case.assignment_group.users if u.is_staff]
+    else:
+        recipients = User.query.filter_by(is_staff=True, is_admin=True).all()
+    try:
+        for r in recipients:
+            db.session.add(Notification(
+                recipient_id=r.id,
+                case_id=case.id,
+                event_type=event_type,
+                title=title,
+                body=details or '',
+            ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def notify_comment_added(comment, case, commenter):

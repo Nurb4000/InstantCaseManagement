@@ -26,6 +26,10 @@ class User(UserMixin, db.Model):
     managed_group = db.relationship('Group', back_populates='manager', lazy='select', uselist=False, foreign_keys='Group.manager_id')
     cases = db.relationship('Case', back_populates='user', lazy=True, foreign_keys='Case.user_id')
     assigned_cases = db.relationship('Case', back_populates='assigned_to', lazy=True, foreign_keys='Case.assigned_to_id')
+    # F7: in-app notifications addressed to this user (assignments, breaches).
+    notifications = db.relationship(
+        'Notification', back_populates='recipient',
+        foreign_keys='Notification.recipient_id', lazy='select')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -215,6 +219,34 @@ class SLAEvent(db.Model):
     event_type = db.Column(db.String(50), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     details = db.Column(db.Text, nullable=True)
+
+
+class Notification(db.Model):
+    """F7: in-app notifications for staff.
+
+    Created when a case is assigned to a user and when a case breaches its SLA/
+    OLA target. Drives the nav unread badge and the /notifications center. The
+    recipient_id foreign key is declared explicitly so the User relationship can
+    use ``foreign_keys`` (User already owns other joins).
+    """
+    __tablename__ = 'notification'
+
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=True, index=True)
+    # 'assigned' | 'sla_breach' | 'ola_breach'
+    event_type = db.Column(db.String(20), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=True)
+    is_read = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    recipient = db.relationship('User', back_populates='notifications', foreign_keys=[recipient_id])
+    case = db.relationship('Case')
+
+    @classmethod
+    def unread_count(cls, user_id):
+        return cls.query.filter_by(recipient_id=user_id, is_read=False).count()
 
 
 class OrgSetting(db.Model):
