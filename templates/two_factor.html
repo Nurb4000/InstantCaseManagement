@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Two-Factor Authentication — Case-Tool{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-shield-alt"></i> Two-Factor Authentication</h3>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    Add a second layer of protection to your account. When enabled,
+                    login requires a time-based code from an authenticator app
+                    (e.g. Google Authenticator, Authy) in addition to your password.
+                </p>
+
+                {% if enabled %}
+                    <p>
+                        <span class="badge bg-success">Enabled</span>
+                        Your account is protected with two-factor authentication.
+                    </p>
+                    <form method="POST">
+                        {{ form.hidden_tag() }}
+                        <div class="mb-3">
+                            {{ form.current_password.label(class="form-label") }}
+                            {{ form.current_password(class="form-control") }}
+                            {% for error in form.current_password.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <button type="submit" class="btn btn-danger">Disable Two-Factor Authentication</button>
+                    </form>
+                {% else %}
+                    <p>
+                        <span class="badge bg-secondary">Disabled</span>
+                        Two-factor authentication is currently off.
+                    </p>
+                    {% if secret %}
+                        <div class="mb-3">
+                            <p class="form-label">Enter this key manually into your
+                               authenticator app (Google Authenticator, Authy, …):</p>
+                            <code class="d-block p-2 bg-light border">{{ secret }}</code>
+                            <small class="text-muted d-block mt-2 word-break">
+                                Manual import link: {{ uri }}
+                            </small>
+                        </div>
+                        <form method="POST">
+                            {{ form.hidden_tag() }}
+                            <div class="mb-3">
+                                {{ form.code.label(class="form-label") }}
+                                {{ form.code(class="form-control", inputmode="numeric", autocomplete="one-time-code") }}
+                                {% for error in form.code.errors %}
+                                    <div class="invalid-feedback d-block">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <small class="text-muted d-block mb-2">
+                                Enter the code your app generates now to confirm setup.
+                            </small>
+                            <button type="submit" class="btn btn-primary">Enable Two-Factor Authentication</button>
+                        </form>
+                    {% else %}
+                        <a href="{{ url_for('auth.two_factor_settings') }}" class="btn btn-primary">Set Up Two-Factor Authentication</a>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

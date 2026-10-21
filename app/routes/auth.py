@@ -1,12 +1,12 @@
 import os
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, session
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy.exc import IntegrityError
 
 from app import db, limiter, login_manager, auth_security
 from app.models import User
-from app.forms import LoginForm, RegisterForm, ChangePasswordForm
+from app.forms import LoginForm, RegisterForm, ChangePasswordForm, LoginMfaForm, TwoFactorEnableForm, TwoFactorDisableForm
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -48,6 +48,13 @@ def login():
         if user and user.check_password(form.password.data):
             auth_security.record_login_attempt(username, ip, success=True)
             auth_security.clear_captcha_for_session()
+            # F10: users with TOTP enabled must supply a second factor before the
+            # session is established. We stash the verified user id (not a token)
+            # and bounce to the code entry step rather than logging in yet.
+            if user.totp_secret:
+                session['mfa_user_id'] = user.id
+                session.modified = True
+                return redirect(url_for('auth.login_mfa'))
             login_user(user)
             return redirect(url_for('cases.dashboard'))
         auth_security.record_login_attempt(username, ip, success=False)
@@ -113,3 +120,69 @@ def change_password():
 def logout():
     logout_user()
     return redirect(url_for('auth.login'))
+
+
+@auth_bp.route('/login/two-factor', methods=['GET', 'POST'])
+def login_mfa():
+    """F10: second-factor entry step. The password was already validated; we only
+    establish the session once a correct TOTP code is supplied."""
+    if current_user.is_authenticated:
+        return redirect(url_for('cases.dashboard'))
+    user_id = session.get('mfa_user_id')
+    if not user_id:
+        # No pending verification (e.g. direct navigation) -> start over.
+        return redirect(url_for('auth.login'))
+
+    form = LoginMfaForm()
+    if form.validate_on_submit():
+        user = User.query.get(user_id)
+        from app.totp import verify_totp
+        if user and user.totp_secret and verify_totp(user.totp_secret, form.code.data):
+            session.pop('mfa_user_id', None)
+            login_user(user)
+            return redirect(url_for('cases.dashboard'))
+        flash('Invalid verification code', 'error')
+    return render_template('login_two_factor.html', form=form)
+
+
+@auth_bp.route('/settings/two-factor', methods=['GET', 'POST'])
+@login_required
+def two_factor_settings():
+    """F10: self-service enable/disable of TOTP two-factor authentication."""
+    if current_user.totp_secret:
+        form = TwoFactorDisableForm()
+        if form.validate_on_submit():
+            if not current_user.check_password(form.current_password.data):
+                form.current_password.errors = ['Current password is incorrect']
+                return render_template('two_factor.html', enabled=True, form=form)
+            current_user.totp_secret = None
+            db.session.commit()
+            session.pop('mfa_pending_secret', None)
+            flash('Two-factor authentication disabled')
+            return redirect(url_for('auth.two_factor_settings'))
+        return render_template('two_factor.html', enabled=True, form=form)
+
+    # Disabled: mint a pending secret (shown to the user) unless one exists.
+    if not session.get('mfa_pending_secret'):
+        from app.totp import generate_secret
+        session['mfa_pending_secret'] = generate_secret()
+        session.modified = True
+    form = TwoFactorEnableForm()
+    if form.validate_on_submit():
+        from app.totp import verify_totp
+        secret = session.get('mfa_pending_secret')
+        if secret and verify_totp(secret, form.code.data):
+            current_user.totp_secret = secret
+            db.session.commit()
+            session.pop('mfa_pending_secret', None)
+            flash('Two-factor authentication enabled')
+            return redirect(url_for('auth.two_factor_settings'))
+        form.code.errors = ['Invalid code. Re-enter the code from your authenticator app.']
+    from app.totp import provisioning_uri
+    return render_template(
+        'two_factor.html',
+        enabled=False,
+        form=form,
+        secret=session.get('mfa_pending_secret'),
+        uri=provisioning_uri(session['mfa_pending_secret'], current_user.email),
+    )

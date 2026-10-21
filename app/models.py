@@ -21,6 +21,9 @@ class User(UserMixin, db.Model):
     # on next login (we never email a plaintext credential). Cleared once they
     # change their password via /change_password.
     force_password_reset = db.Column(db.Boolean, default=False)
+    # F10: TOTP provisioning secret (RFC 6238). NULL/empty means two-factor is
+    # disabled for this user and login proceeds after the password alone.
+    totp_secret = db.Column(db.String(32), nullable=True)
 
     groups = db.relationship('Group', secondary=user_groups, back_populates='users', lazy='select')
     managed_group = db.relationship('Group', back_populates='manager', lazy='select', uselist=False, foreign_keys='Group.manager_id')

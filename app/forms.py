@@ -101,6 +101,21 @@ class ChangePasswordForm(FlaskForm):
             raise ValidationError('Passwords do not match.')
 
 
+class LoginMfaForm(FlaskForm):
+    # F10: the second-factor code entered on the post-password verification step.
+    code = StringField('Verification Code', validators=[DataRequired(), Length(min=6, max=6)])
+
+
+class TwoFactorEnableForm(FlaskForm):
+    # F10: confirm a freshly provisioned secret by entering its current code.
+    code = StringField('Verification Code', validators=[DataRequired(), Length(min=6, max=6)])
+
+
+class TwoFactorDisableForm(FlaskForm):
+    # F10: prove ownership of the account before disabling the second factor.
+    current_password = PasswordField('Current Password', validators=[DataRequired()])
+
+
 class AssignForm(FlaskForm):
     assigned_to = SelectField('Assign To', coerce=int, validators=[DataRequired()])
 
