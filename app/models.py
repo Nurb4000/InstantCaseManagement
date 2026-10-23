@@ -252,6 +252,36 @@ class Notification(db.Model):
         return cls.query.filter_by(recipient_id=user_id, is_read=False).count()
 
 
+class KnowledgeArticle(db.Model):
+    """F11: staff-authored knowledge base article used by chat retrieval (RAG).
+
+    Articles may be created from scratch or promoted from a resolved case
+    (``source_case_id``). Only ``is_published`` articles are visible to end users
+    and are considered by the chat retrieval layer.
+    """
+    __tablename__ = 'knowledge_article'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(100), nullable=True)
+    tags = db.Column(db.String(300), nullable=True)
+    is_published = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    source_case_id = db.Column(
+        db.Integer, db.ForeignKey('case.id', ondelete='SET NULL'), nullable=True
+    )
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow, nullable=False)
+
+    author = db.relationship('User', foreign_keys=[created_by_id])
+    source_case = db.relationship('Case', foreign_keys=[source_case_id])
+
+    def __repr__(self):
+        return f'<KnowledgeArticle {self.id} {self.title}>'
+
+
 class OrgSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_hours_start = db.Column(db.Integer, default=6)

@@ -144,6 +144,12 @@
                             <i class="fas fa-edit"></i> Edit
                         </a>
                     {% endif %}
+
+                    {% if current_user.is_admin %}
+                        <a href="{{ url_for('knowledge.create_article', case_id=case.id) }}" class="btn btn-sm btn-outline-success">
+                            <i class="fas fa-book"></i> Create KB Article
+                        </a>
+                    {% endif %}
                 </div>
             {% endif %}
         </div>

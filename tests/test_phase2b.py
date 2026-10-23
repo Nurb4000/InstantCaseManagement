@@ -156,7 +156,7 @@ def test_registration_enabled_by_default(app, client, monkeypatch):
 # Q2 — Flask-Migrate schema bootstrap
 # ---------------------------------------------------------------------------
 
-HEAD_REVISION = '8b289cc88989'  # add user totp_secret for F10 two-factor; keep in sync with migrations/versions/
+HEAD_REVISION = 'c9f1a2b7d4e6'  # add knowledge_article for F11 knowledge base; keep in sync with migrations/versions/
 
 
 def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):
@@ -175,7 +175,8 @@ def test_create_app_migrates_fresh_db(monkeypatch, tmp_path):
             text('select version_num from alembic_version')
         ).scalar()
         assert version == HEAD_REVISION
-        for name in ('user', 'case', 'group', 'org_setting', 'login_attempt', 'attachment'):
+        for name in ('user', 'case', 'group', 'org_setting', 'login_attempt',
+                     'attachment', 'knowledge_article'):
             assert name in tables, f'missing table {name}'
 
 

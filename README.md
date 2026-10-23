@@ -43,6 +43,10 @@ Current feature set
 - Now has a simple chat interface, accessable via main menu at the top.
     - Chat connects to extenral llama.cpp endpoints. One is for users, the other is for staff, so you can have targeted models if you like.
     - in env file it has the endpoint url and system prompt for each. You will want to adjust that to fit your needs.
+- Knowledge base (F11)
+    - Admins author/publish articles; end users can browse and search them.
+    - Resolved cases can be promoted into draft articles in one click.
+    - Chat is grounded (RAG) in published articles; staff chat also searches resolved cases in the staff member's groups.
  
 
 

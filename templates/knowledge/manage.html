@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-1">Knowledge Base Administration</h2>
+        <p class="text-muted mb-0">Draft, publish, and retire articles used by users and chat.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('knowledge.list_articles') }}" class="btn btn-outline-secondary">View Knowledge Base</a>
+        <a href="{{ url_for('knowledge.create_article') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Article
+        </a>
+    </div>
+</div>
+
+{% if articles %}
+    <div class="table-responsive">
+        <table class="table table-dark table-hover sortable">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for article in articles %}
+                <tr>
+                    <td><a href="{{ url_for('knowledge.view_article', article_id=article.id) }}">{{ article.title }}</a></td>
+                    <td>{{ article.category or '' }}</td>
+                    <td>
+                        {% if article.is_published %}
+                            <span class="text-success">Published</span>
+                        {% else %}
+                            <span class="text-muted">Draft</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if article.source_case_id %}
+                            <a href="{{ url_for('cases.view_case', case_id=article.source_case_id) }}">Case #{{ article.source_case_id }}</a>
+                        {% endif %}
+                    </td>
+                    <td class="nowrap">{{ article.updated_at | local_fmt }}</td>
+                    <td class="nowrap">
+                        <a href="{{ url_for('knowledge.edit_article', article_id=article.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <form method="POST" action="{{ url_for('knowledge.toggle_article', article_id=article.id) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if article.is_published else 'success' }}">
+                                {{ 'Unpublish' if article.is_published else 'Publish' }}
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('knowledge.delete_article', article_id=article.id) }}" class="d-inline"
+                              onsubmit="return confirm('Delete article &#39;{{ article.title }}&#39;?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-book fa-3x mb-3 text-muted"></i>
+        <h4>No knowledge articles yet</h4>
+        <a href="{{ url_for('knowledge.create_article') }}" class="btn btn-primary">Create Your First Article</a>
+    </div>
+{% endif %}
+{% endblock %}

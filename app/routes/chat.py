@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, request, Response, stream_with_con
 from flask_login import login_required, current_user
 import requests
 
-from app import limiter, csrf
+from app import limiter, csrf, knowledge
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -52,7 +52,8 @@ def chat_page():
 def chat_user():
     if current_user.is_staff:
         return {'error': 'Staff must use the staff chat endpoint'}, 403
-    return _proxy_chat(LLAMA_CPP_USER_URL, CHAT_USER_SYSTEM_PROMPT)
+    return _proxy_chat(LLAMA_CPP_USER_URL, CHAT_USER_SYSTEM_PROMPT,
+                       include_cases=False)
 
 
 @chat_bp.route('/chat/staff', methods=['POST'])
@@ -62,16 +63,36 @@ def chat_user():
 def chat_staff():
     if not current_user.is_staff:
         return {'error': 'Only staff can use the staff chat endpoint'}, 403
-    return _proxy_chat(LLAMA_CPP_STAFF_URL, CHAT_STAFF_SYSTEM_PROMPT)
+    return _proxy_chat(LLAMA_CPP_STAFF_URL, CHAT_STAFF_SYSTEM_PROMPT,
+                       include_cases=True)
 
 
-def _proxy_chat(llama_url, system_prompt):
+def _last_user_message(messages):
+    """Extract the newest user query for retrieval, ignoring malformed entries."""
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get('role') == 'user':
+            content = message.get('content')
+            if isinstance(content, str) and content.strip():
+                return content
+    return ''
+
+
+def _proxy_chat(llama_url, system_prompt, *, include_cases=False):
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return {'error': 'Invalid or missing JSON body'}, 400
     messages = data.get('messages')
     if not isinstance(messages, list):
         return {'error': "'messages' must be a list"}, 400
+
+    # F11: ground the model in published KB articles (and, for staff, resolved
+    # cases in their groups) relevant to the latest user message.
+    retrieved = knowledge.build_context(
+        _last_user_message(messages), user=current_user,
+        include_cases=include_cases,
+    )
+    if retrieved:
+        system_prompt = f'{system_prompt}\n\n{retrieved}'
 
     full_messages = [{'role': 'system', 'content': system_prompt}] + messages
 

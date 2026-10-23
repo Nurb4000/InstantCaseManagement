@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-1"><i class="fas fa-book-open"></i> Knowledge Base</h2>
+        <p class="text-muted mb-0">Answers and resolved cases that also ground the AI chat.</p>
+    </div>
+    {% if current_user.is_admin %}
+    <a href="{{ url_for('knowledge.manage') }}" class="btn btn-outline-primary">
+        <i class="fas fa-cog"></i> Manage Articles
+    </a>
+    {% endif %}
+</div>
+
+<form method="GET" class="row g-2 mb-4">
+    <div class="col-md-6">
+        <input type="text" name="q" class="form-control" value="{{ q }}"
+               placeholder="Search the knowledge base and resolved cases...">
+    </div>
+    <div class="col-md-4">
+        <select name="category" class="form-select">
+            <option value="">All categories</option>
+            {% for c in categories %}
+                <option value="{{ c }}" {{ 'selected' if c == category }}>{{ c }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">Search</button>
+    </div>
+</form>
+
+{% if q %}
+    <h5 class="mb-3">Articles matching “{{ q }}”</h5>
+{% endif %}
+
+{% if articles %}
+    <div class="row g-3 mb-5">
+        {% for article in articles %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <a href="{{ url_for('knowledge.view_article', article_id=article.id) }}">{{ article.title }}</a>
+                    </h5>
+                    <p class="card-text text-muted">{{ article.body[:220] }}{% if article.body|length > 220 %}…{% endif %}</p>
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        {% if article.category %}
+                            <span class="badge bg-secondary">{{ article.category }}</span>
+                        {% endif %}
+                        {% if article.tags %}
+                            <small class="text-muted">{{ article.tags }}</small>
+                        {% endif %}
+                        <small class="text-muted ms-auto">Updated {{ article.updated_at | local_fmt('%Y-%m-%d') }}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-book fa-3x mb-3 text-muted"></i>
+        <h4>{% if q %}No matching articles{% else %}No knowledge articles yet{% endif %}</h4>
+        {% if current_user.is_admin %}
+            <a href="{{ url_for('knowledge.create_article') }}" class="btn btn-primary">Create the first article</a>
+        {% else %}
+            <p class="text-muted">Ask a staff member to publish helpful articles here.</p>
+        {% endif %}
+    </div>
+{% endif %}
+
+{% if case_results %}
+    <h5 class="mb-3">Matching resolved cases <small class="text-muted">(staff only)</small></h5>
+    <div class="list-group mb-4">
+        {% for result in case_results %}
+        <a href="{{ url_for('cases.view_case', case_id=result.id) }}"
+           class="list-group-item list-group-item-action bg-dark">
+            <div class="d-flex justify-content-between">
+                <strong>Case #{{ result.id }} — {{ result.title }}</strong>
+            </div>
+            <small class="text-muted">{{ result.snippet }}</small>
+        </a>
+        {% endfor %}
+    </div>
+{% endif %}
+{% endblock %}

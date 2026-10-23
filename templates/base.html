@@ -247,6 +247,9 @@
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('chat.chat_page') }}">Chat</a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('knowledge.list_articles') }}">Knowledge</a>
+                        </li>
                         {% if current_user.is_staff %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('cases.submit_case') }}">Submit Case</a>
@@ -267,6 +270,7 @@
                                     <li><a class="dropdown-item" href="{{ url_for('admin.list_types') }}">Types</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('admin.list_categories') }}">Categories</a></li>
                                     <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('knowledge.manage') }}">Knowledge Base</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('cases.import_cases') }}">Import Cases</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('cases.list_deleted_cases') }}">Deleted Cases</a></li>
                                     <li><hr class="dropdown-divider"></li>

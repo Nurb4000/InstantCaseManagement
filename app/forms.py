@@ -1,6 +1,6 @@
 import re
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, TextAreaField, SelectField, BooleanField, SelectMultipleField, FloatField
+from wtforms import StringField, PasswordField, TextAreaField, SelectField, BooleanField, SelectMultipleField, FloatField, HiddenField
 from wtforms.validators import DataRequired, Email, Length, ValidationError, Optional
 
 # Obvious/common passwords that must never be accepted, regardless of complexity.
@@ -161,6 +161,16 @@ class CaseTypeForm(FlaskForm):
 class CaseCategoryForm(FlaskForm):
     name = StringField('Category Name', validators=[DataRequired(), Length(max=100)])
     sort_order = SelectField('Sort Order', coerce=int, choices=[(i, str(i)) for i in range(1, 21)])
+
+
+class KnowledgeArticleForm(FlaskForm):
+    title = StringField('Title', validators=[DataRequired(), Length(max=200)])
+    body = TextAreaField('Article Body', validators=[DataRequired()])
+    category = StringField('Category', validators=[Optional(), Length(max=100)])
+    tags = StringField('Tags', validators=[Optional(), Length(max=300)])
+    is_published = BooleanField('Published')
+    # F11: optional link back to the resolved case this article was drafted from.
+    source_case_id = HiddenField(validators=[Optional()])
 
 
 class AdminEditUserForm(FlaskForm):

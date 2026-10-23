@@ -174,12 +174,14 @@ def create_app(testing=False):
     from app.routes.admin import admin_bp
     from app.routes.chat import chat_bp
     from app.routes.reports import reports_bp
+    from app.routes.knowledge import knowledge_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(cases_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(chat_bp)
     app.register_blueprint(reports_bp)
+    app.register_blueprint(knowledge_bp)
 
     # F3: force users whose admin-reset password hasn't been changed yet to set a
     # new one before they can use the app. Registered at app scope so it applies

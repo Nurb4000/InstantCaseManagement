@@ -25,11 +25,11 @@ def test_migrations_match_models(app):
         from app.models import (  # noqa: F401  (import for side-effect registration)
             Case, User, Group, OrgSetting, CaseState, CaseType, CaseCategory,
             Attachment, Comment, EmailLog, SLAEvent, OLAEvent, AuditLog,
-            LoginAttempt,
+            LoginAttempt, KnowledgeArticle,
         )
         models = [Case, User, Group, OrgSetting, CaseState, CaseType,
                   CaseCategory, Attachment, Comment, EmailLog, SLAEvent,
-                  OLAEvent, AuditLog, LoginAttempt]
+                  OLAEvent, AuditLog, LoginAttempt, KnowledgeArticle]
 
         problems = []
         for model in models:
